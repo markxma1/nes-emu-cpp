@@ -1,0 +1,33 @@
+# Build output
+build/
+build-asan/
+build-tsan/
+*.o
+*.obj
+
+# Runtime save states / recorded-input files - these are per-player session
+# data (a save's contents depend on exactly where a specific person stopped
+# playing a specific copy of a ROM), not source, and are generated next to
+# whatever ROM path the emulator was launched with.
+*.sav
+*.inputs.txt
+
+# Ad-hoc debugging scratch (old screenshots/logs from investigating a bug
+# live in the project directory instead of a proper scratch/tmp location) -
+# not part of the emulator itself.
+scratch/
+trace.log
+
+# NES ROM files (.nes) are almost always copyrighted commercial game data,
+# not something this repository has the right to redistribute - anyone
+# using this emulator needs to supply their own legally-obtained ROM (e.g.
+# dumped from a cartridge they own). This is the same norm every emulator
+# project follows.
+#
+# The one exception is nestest.nes/nestest.log (tests/nestest/) - that's a
+# freely-distributed 6502 conformance test ROM from the NES homebrew/dev
+# community (see https://www.nesdev.org/wiki/Emulator_tests), not a
+# commercial game, and is explicitly un-ignored below so `tests/nestest_check`
+# keeps working for anyone who clones this repo.
+*.nes
+!tests/nestest/nestest.nes
