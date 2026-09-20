@@ -954,6 +954,87 @@ namespace
 
         NES_PPU_Register::PPUCTRL.N(0);
     }
+
+    /// Regression test for NES_PPU::RenderBackgroundScanline()'s missing
+    /// PPUMASK.b() ("show background") check - see NES_PPU.Display.cpp's
+    /// own FIXED note for the full story. Found live while investigating a
+    /// user-reported Bram Stoker's Dracula symptom ("flickers between
+    /// frames, sometimes normal sometimes text") by replaying the user's
+    /// own recorded 3772-frame input session and diffing consecutive
+    /// dumped frames against each other: one single frame (out of six
+    /// dumped around the point of divergence) came back solid black, with
+    /// `NES_TRACE_WRITE=2001` showing the game had written $2001=0x00
+    /// (both background and sprites disabled) right beforehand. Per
+    /// http://wiki.nesdev.com/w/index.php/PPU_registers ($2001 bit 3, "1:
+    /// Show background") and http://wiki.nesdev.com/w/index.php/PPU_rendering
+    /// ("If the background or sprites are disabled ... the backdrop color
+    /// is shown"), real hardware must show the universal background color
+    /// (palette index $3F00) for any scanline rendered while this bit is
+    /// clear - not whatever nametable/CHR data happens to be in VRAM at
+    /// that moment, which a game mid-transition may be actively rewriting.
+    /// RenderSpriteScanline() right below it in the same file already
+    /// correctly gated on the equivalent `PPUMASK.s()` bit; this function
+    /// had no such check at all before this fix, unconditionally decoding
+    /// and drawing nametable tiles on every scanline regardless of the
+    /// enable bit.
+    void TestBackgroundScanlineRespectsRenderEnableBit()
+    {
+        constexpr uint16_t kTileID = 1;
+
+        // Forced to bank 0 explicitly - PPUCTRL.B() (background
+        // pattern-table-select) is process-global state an earlier test may
+        // have left at 1, which would make DecodeBackgroundTileFresh() read
+        // PatternTableN[1] while this test only ever writes PatternTableN[0].
+        NES_PPU_Register::PPUCTRL.B(false);
+
+        // Tile 1, pixel (0,0): bit 7 of the low bitplane byte set -> palette
+        // index 1 there (same construction TestNameTableViewerUsesFreshDecodeNotStaleTileCache
+        // above uses for tile 0), so this tile visibly differs from a fully
+        // transparent (index-0) tile once actually decoded. PatternTableN is
+        // indexed [bank][byteOffsetWithinBank], not [tileID][byteOffset] -
+        // tile kTileID's own low-bitplane row-0 byte lives at offset
+        // kTileID*16 within bank 0 (16 bytes/tile), not at PatternTableN[kTileID][0]
+        // (which would instead write into a whole different *bank*, k=0/1 only).
+        NES_PPU_Memory::PatternTableN[0][kTileID * 16]->Value(0x80);
+        // Nametable 0, row 0, col 0 (k=0) - the exact cell RenderBackgroundScanline()
+        // reads for (screenY=0, xScroll=0, yScroll=0).
+        NES_PPU_Memory::NameTableN[0][0]->Value(kTileID);
+        // Attribute byte covering this same top-left 2x2 tile block (see
+        // NES_PPU_AttributeTable::SubBlock()'s shift1=0 case for k=0) -
+        // forced to 0 so the attribute-selected palette group is known
+        // (group 0) regardless of what an earlier test left behind here,
+        // matching the pallete=0 assumed below.
+        NES_PPU_Memory::AttributeTableN[0][0]->Value(0);
+        // Tile's own color (palette index 0x16 - a clearly non-white/non-black
+        // red) and the backdrop (0x21, a clearly different blue) - deliberately
+        // NOT 0x30/0x0F/0x00, whose RGB can coincide with Color::Transparent()'s
+        // placeholder RGB (255,255,255) or Color::Black(), which would make an
+        // R/G/B-only mismatch invisible to this test.
+        NES_PPU_Memory::BGPalette[1]->Value(0x16);
+        NES_PPU_Memory::BGPalette[0]->Value(0x21);
+
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+
+        NES_PPU_Register::PPUMASK.b(false);
+        NES::NES_PPU::RenderBackgroundScanline(0);
+        NES::NES_PPU::Color disabledColor = NES::NES_PPU::BackgroundBufferPixel(0, 0);
+        Check(disabledColor == NES::NES_PPU_Palette::UniversalBackgroundColor(),
+              "RenderBackgroundScanline(): with PPUMASK.b()=false, a scanline must show the "
+              "universal background color, not real nametable tile data (real hardware never "
+              "fetches nametable/CHR data for background rendering while this bit is clear)");
+
+        NES_PPU_Register::PPUMASK.b(true);
+        NES::NES_PPU::ClearFreshTileCaches();
+        NES::NES_PPU::RenderBackgroundScanline(0);
+        NES::NES_PPU::Color enabledColor = NES::NES_PPU::BackgroundBufferPixel(0, 0);
+        Check(enabledColor != NES::NES_PPU_Palette::UniversalBackgroundColor(),
+              "RenderBackgroundScanline(): with PPUMASK.b()=true, a scanline with real, "
+              "non-transparent tile data must not fall back to the backdrop color");
+        Check(enabledColor == NES::NES_PPU::DecodeBackgroundTileFresh(kTileID, 0).GetPixel(0, 0),
+              "RenderBackgroundScanline(): with PPUMASK.b()=true, the rendered pixel must match "
+              "the tile actually decoded from live nametable/pattern-table data");
+    }
 }
 
 int main()
@@ -977,6 +1058,7 @@ int main()
     TestNameTableDebugOverlayQuadrantsPairCorrectly();
     TestDrawDisplayFrameWraparoundIsContinuous();
     TestScrollSurvivesPPUCTRLWriteAfterPPUSCROLL();
+    TestBackgroundScanlineRespectsRenderEnableBit();
 
     if (failures == 0)
     {

@@ -268,7 +268,25 @@ namespace NES
         // Table viewer window (NES/main.cpp's N key), which still wants a
         // "whole stable frame" view rather than per-scanline sampling.
         static Picture backgroundBuffer;
+
+    public:
+        /// NEW, no C# equivalent - renders exactly one real on-screen
+        /// scanline of background into the persistent backgroundBuffer (see
+        /// the .cpp's own comment). Public (like ClearFreshTileCaches()
+        /// above) specifically so tests/cpu/cpu_check.cpp's PPUMASK
+        /// background-enable regression test can drive a single scanline in
+        /// isolation, without needing to replay a full AdvanceDots()
+        /// 262-scanline sweep (whose currentScanline/xScroll/yScroll state
+        /// is process-global and would make a test order-dependent on
+        /// whatever earlier tests left behind).
         static void RenderBackgroundScanline(int screenY);
+
+        /// Debug/test introspection only - same reasoning as
+        /// RenderBackgroundScanline() above. Returns whatever color is
+        /// currently sitting in the persistent background layer at (x, y).
+        static Color BackgroundBufferPixel(int x, int y) { return backgroundBuffer.GetPixel(x, y); }
+
+    private:
 
         // --- NEW, no C# equivalent: per-scanline sprite rendering, see
         // RenderSpriteScanline()'s own .cpp comment. Replaces the old

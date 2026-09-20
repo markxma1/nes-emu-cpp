@@ -389,6 +389,39 @@ namespace NES
     // makes the pattern-table half of this cheap either way).
     void NES_PPU::RenderBackgroundScanline(int screenY)
     {
+        // FIXED (real bug, found while investigating a reported Bram
+        // Stoker's Dracula "flickers between frames, sometimes normal
+        // sometimes text/garbage" symptom): per
+        // http://wiki.nesdev.com/w/index.php/PPU_registers ($2001 PPUMASK
+        // bit 3, "1: Show background") and
+        // http://wiki.nesdev.com/w/index.php/PPU_rendering ("If the
+        // background or sprites are disabled ... the backdrop color is
+        // shown"), real hardware only fetches/draws nametable tiles for a
+        // scanline when PPUMASK's background-enable bit is set; when it's
+        // clear, that scanline shows the universal background color
+        // (palette index $3F00) instead, not whatever nametable data
+        // happens to be sitting in VRAM. This function had no such check at
+        // all - unlike RenderSpriteScanline() right below it, which already
+        // correctly gates on `PPUMASK.s()` - so background tiles were
+        // decoded and drawn unconditionally on every scanline regardless of
+        // this bit. Games routinely clear the background-enable bit for a
+        // frame (or part of one) specifically to hide an in-progress
+        // nametable/attribute-table rewrite (e.g. during a room/screen
+        // transition) - with this bug, our renderer would show whatever
+        // half-written VRAM state existed at that exact moment instead of
+        // the correct solid backdrop color, producing exactly this kind of
+        // transient single-frame garbage. Confirmed live: replaying the
+        // user's own recorded Dracula input (166 events/3772 frames) and
+        // dumping consecutive frames around the point of a real, observed
+        // one-frame corruption showed $2001 being written 0x00 (both
+        // background and sprites disabled) right at the scanlines
+        // immediately preceding it, via `NES_TRACE_WRITE=2001`.
+        if (!NES_PPU_Register::PPUMASK.b())
+        {
+            backgroundBuffer.FillRectangle(NES_PPU_Palette::UniversalBackgroundColor(), 0, screenY, 256, screenY + 1);
+            return;
+        }
+
         if (std::getenv("NES_TRACE_YSCROLL_SPLIT") && screenY >= 185 && screenY <= 200)
             std::cerr << "[bg-scanline] screenY=" << screenY << " yScroll=" << yScroll
                       << " xScroll=" << xScroll << std::endl;
