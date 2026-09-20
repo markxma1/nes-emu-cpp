@@ -1057,24 +1057,31 @@ namespace
     /// since the actual bug this guards against is a missing/misplaced
     /// increment at Run()'s one real call site, which manipulating the
     /// atomic directly wouldn't catch. speedMultiplier is set to its
-    /// maximum first so the loop advances many real frames well within the
-    /// short real-time budget below, keeping this fast and (with a loose,
-    /// order-of-magnitude lower bound rather than an exact count)
-    /// non-flaky under real scheduling jitter.
+    /// maximum first so the loop advances many real frames within the
+    /// real-time budget below, keeping this reasonably fast and (with a
+    /// loose lower bound rather than an exact count) non-flaky under real
+    /// scheduling jitter. The budget/bound pair below is deliberately
+    /// generous - found live: an initial 150ms/>=10 pairing (tuned against
+    /// a plain Release build) failed under build-asan, whose per-memory-
+    /// access instrumentation only reached 2 completed frames in that same
+    /// window - a real ~5-10x-plus slowdown this test must tolerate, not a
+    /// code regression (ASan/TSan builds are part of this project's own
+    /// verification discipline, so this test must pass there too, not just
+    /// in the fast default build).
     void TestCompletedFramesCountsRealRunLoopFrames()
     {
         NES::NES_CPU::speedMultiplier.store(NES::NES_CPU::kMaxSpeedMultiplier, std::memory_order_relaxed);
         long long before = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
 
         std::thread cpuThread([]() { NES::NES_Console::Run(); });
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
         NES::NES_Console::Stop();
         cpuThread.join();
 
         long long after = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
-        Check(after >= before + 10,
+        Check(after >= before + 5,
               "NES_CPU::completedFrames: running the real NES_CPU::Run() loop (via NES_Console::Run(), "
-              "same entry point NES/main.cpp's CPU thread uses) for 150ms at max speed must advance "
+              "same entry point NES/main.cpp's CPU thread uses) for 2s at max speed must advance "
               "this counter by a meaningful amount (got " + std::to_string(after - before) +
               "), proving RenderFrame() and the counter increment are still paired at Run()'s real "
               "call site - not just that the atomic itself supports being incremented");
