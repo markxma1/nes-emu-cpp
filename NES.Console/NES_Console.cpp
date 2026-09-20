@@ -33,6 +33,8 @@ namespace NES
     NES_PPU::Picture NES_Console::latestFrame(256, 240);
     std::atomic<bool> NES_Console::nameTableDebugWindowVisible{false};
     NES_PPU::Picture NES_Console::latestNameTableDebugOverlay(64 * 8, 60 * 8);
+    std::atomic<bool> NES_Console::oamDebugWindowVisible{false};
+    NES_PPU::Picture NES_Console::latestOAMDebugOverlay(256, 280);
 
     bool NES_Console::DrawRefresh() { return NES_PPU::DrawRefresh; }
     void NES_Console::DrawRefresh(bool v) { NES_PPU::DrawRefresh = v; }
@@ -149,6 +151,14 @@ namespace NES
         return latestNameTableDebugOverlay;
     }
 
+    // See getNameTabeleDebugOverlay()'s own comment - same producer
+    // (RenderFrame(), CPU thread)/consumer (UI thread) split, same reason.
+    NES_PPU::Picture NES_Console::getOAMDebugOverlay()
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        return latestOAMDebugOverlay;
+    }
+
     // NEW, no C# equivalent - see getNameTabeleDebugOverlay()'s own comment
     // for the race this closes. NES/main.cpp calls this once per UI-thread
     // loop iteration with the debug Name Table window's current `visible`
@@ -162,6 +172,11 @@ namespace NES
     void NES_Console::setNameTableDebugWindowVisible(bool visible)
     {
         nameTableDebugWindowVisible.store(visible, std::memory_order_relaxed);
+    }
+
+    void NES_Console::setOAMDebugWindowVisible(bool visible)
+    {
+        oamDebugWindowVisible.store(visible, std::memory_order_relaxed);
     }
 
     // FIXED (new design, not a C# port - the actual root cause behind this
@@ -240,10 +255,21 @@ namespace NES
         if (wantsNameTableDebug)
             nameTableDebug = NES_PPU::NameTabeleDebugOverlay();
 
+        // See setOAMDebugWindowVisible()/getOAMDebugOverlay()'s own
+        // comments - same "only pay for it while the window is open, always
+        // compute on the CPU thread" reasoning as the Name Table debug view
+        // just above.
+        bool wantsOAMDebug = oamDebugWindowVisible.load(std::memory_order_relaxed);
+        NES_PPU::Picture oamDebug(256, 280);
+        if (wantsOAMDebug)
+            oamDebug = NES_PPU::OAMDebugOverlay();
+
         std::lock_guard<std::mutex> lock(frameMutex);
         latestFrame = frame;
         if (wantsNameTableDebug)
             latestNameTableDebugOverlay = nameTableDebug;
+        if (wantsOAMDebug)
+            latestOAMDebugOverlay = oamDebug;
     }
 
     NES_PPU::Color NES_Console::getUniversalBackgroundColor()

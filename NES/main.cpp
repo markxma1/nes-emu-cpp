@@ -485,6 +485,12 @@ namespace
     DebugWindow patternTableWindow("NES - Pattern Table");
     DebugWindow cpuSpeedWindow("NES - CPU Speed");
     DebugWindow memoryWindow("NES - Memory Viewer");
+    // NEW, no C# equivalent - see NES_PPU::OAMDebugOverlay()'s own comment
+    // for what this shows. 'U' rather than an 'S'/'B' sprite-related
+    // mnemonic because both collide with existing gameplay keys (S = Down
+    // in the WASD D-pad scheme; B doesn't collide but reads as "press the
+    // NES B button", which this isn't).
+    DebugWindow oamWindow("NES - OAM Viewer");
     /// Palette number fed to NES_Console::getPatternTable(PN) - cycled with
     /// 'O' while the pattern-table window is open. Matches PatternTable.cs's
     /// button1_click, minus its 0..10 wraparound quirk (that range only ever
@@ -736,6 +742,7 @@ namespace
         patternTableWindow.syncClosedByUser();
         cpuSpeedWindow.syncClosedByUser();
         memoryWindow.syncClosedByUser();
+        oamWindow.syncClosedByUser();
 
         // See NES_Console::setNameTableDebugWindowVisible()'s own comment -
         // tells the CPU thread whether it's worth rebuilding the debug Name
@@ -765,6 +772,16 @@ namespace
             DrawCpuSpeedChart();
         if (memoryWindow.visible)
             DrawMemoryViewer();
+
+        // See NES_Console::setOAMDebugWindowVisible()'s own comment - same
+        // "tell the CPU thread whether it's worth the rebuild" reasoning as
+        // the Name Table window above.
+        NES::NES_Console::setOAMDebugWindowVisible(oamWindow.visible);
+        if (oamWindow.visible)
+        {
+            NES_PPU::Picture oam = NES::NES_Console::getOAMDebugOverlay();
+            cv::imshow(oamWindow.name, oam.Image());
+        }
     }
 
     /// Debug-window toggle keys, one-shot actions rather than held button
@@ -779,6 +796,7 @@ namespace
         case 'o': case 'O': patternTablePalette = (patternTablePalette + 1) % 4; break;
         case 'c': case 'C': cpuSpeedWindow.toggle(); break;
         case 'v': case 'V': memoryWindow.toggle(); break;
+        case 'u': case 'U': oamWindow.toggle(); break;
         case '[': ScrollMemoryView(-1); break;
         case ']': ScrollMemoryView(1); break;
         case '{': ScrollMemoryView(-16); break;
@@ -1103,7 +1121,9 @@ int main(int argc, char** argv)
             std::cout << ", G to remap the " << src->Name();
     std::cout << "." << std::endl;
     std::cout << "Debug windows: N = Name Table, P = Pattern Table (O cycles its palette), "
-                 "C = CPU Speed, V = Memory Viewer ([/] to scroll a page, {/} to jump 4K)"
+                 "C = CPU Speed, V = Memory Viewer ([/] to scroll a page, {/} to jump 4K), "
+                 "U = OAM Viewer (all 64 sprites at their real OAM position, including ones "
+                 "parked below the red line at the bottom of the screen)"
               << std::endl;
     std::cout << "Press L to pick a different ROM (looked for next to the executable and in ./roms)."
               << std::endl;
@@ -1167,6 +1187,14 @@ int main(int argc, char** argv)
     // NES_PPU_Memory writes) - this is how it was originally found.
     if (std::getenv("NES_AUTO_OPEN_NAMETABLE"))
         nameTableWindow.toggle();
+
+    // Same spirit as NES_AUTO_OPEN_NAMETABLE above - opens the OAM Viewer
+    // debug window headlessly so NES_DUMP_OAM (below) gets real content
+    // instead of a black placeholder (RenderFrame() only bothers rebuilding
+    // it while oamWindow.visible is true - see NES_Console::
+    // setOAMDebugWindowVisible()'s own comment).
+    if (std::getenv("NES_AUTO_OPEN_OAM"))
+        oamWindow.toggle();
 
     // Same spirit as NES_AUTO_LOAD_SAVE above - opt-in via NES_PLAYBACK_INPUT
     // (a recording file path, see StartRecording()'s own comment on the
@@ -1413,6 +1441,16 @@ int main(int argc, char** argv)
             {
                 NES_PPU::Picture nameTable = NES::NES_Console::getNameTabeleDebugOverlay();
                 cv::imwrite(dumpNtPath, nameTable.Image());
+            }
+
+            // Same spirit as NES_DUMP_NAMETABLE above - dumps the OAM Viewer
+            // debug overlay (see NES_PPU::OAMDebugOverlay()'s own comment).
+            // Needs NES_AUTO_OPEN_OAM set too, or this is just a black image.
+            const char* dumpOamPath = std::getenv("NES_DUMP_OAM");
+            if (dumpOamPath)
+            {
+                NES_PPU::Picture oam = NES::NES_Console::getOAMDebugOverlay();
+                cv::imwrite(dumpOamPath, oam.Image());
             }
 
             // TEMPORARY diagnostic aid - opt-in via NES_DUMP_HUD_ROWS, off

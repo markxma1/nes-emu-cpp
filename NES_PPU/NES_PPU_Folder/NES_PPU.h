@@ -118,6 +118,14 @@ namespace NES
         /// Renders one full frame (background + sprites-behind + sprites-in-front).
         static Picture Display();
 
+        /// Debug-only: renders every one of OAM's 64 sprites at its raw
+        /// (X, Y) position, including ones parked off the bottom of the
+        /// real screen (Y>=240) that real hardware never displays - see
+        /// its own .cpp comment for why (a game's status-bar/HUD digits are
+        /// sometimes sprites moved on-screen only when needed, not
+        /// background tiles).
+        static Picture OAMDebugOverlay();
+
         // --- NEW, no C# equivalent: real scanline/dot clock ---
         // See NES_PPU.Display.cpp's AdvanceDots()/OnScanlineStart() for the
         // full story - this is the fix for this port having no independent

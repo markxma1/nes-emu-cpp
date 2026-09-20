@@ -645,4 +645,85 @@ namespace NES
             }
         }
     }
+
+    // NEW, no C# equivalent - user-requested debug tool (see NES/main.cpp's
+    // "O = OAM Viewer" key), built while investigating whether a game's
+    // status-bar HUD digits (Tiny Toon Adventures/Bram Stoker's Dracula)
+    // come from the background nametable or from sprites parked below the
+    // visible screen and moved on-screen only when needed. Draws *every*
+    // one of OAM's 64 sprite slots at its real, raw OAM (X, Y) - including
+    // ones with Y>=240 (per http://wiki.nesdev.com/w/index.php/PPU_OAM
+    // "Sprite Y coordinate": "usual placement is Y' = 255 or greater to be
+    // sure it's offscreen"), which real hardware never renders but this
+    // view deliberately does anyway, on a canvas taller than the real
+    // 256x240 screen so those parked-offscreen sprites are visible instead
+    // of silently clipped - a red line marks the real screen's bottom edge
+    // (scanline 240, where vblank begins) so it's immediately visible which
+    // sprites are actually on-screen right now versus waiting in the
+    // off-screen "parking" area a game moves them out of on demand. Unlike
+    // RenderSpriteScanline() above (which this reuses the tile-decode/flip
+    // logic from), this ignores the real 8-sprites-per-scanline hardware
+    // limit and OAM priority/transparency ordering entirely - it's a raw
+    // memory dump rendered as a picture, not a faithful re-render of what
+    // the PPU would actually output.
+    NES_PPU::Picture NES_PPU::OAMDebugOverlay()
+    {
+        constexpr int kCanvasHeight = 280; // 256 (real Y range) + 16 (tallest sprite) + margin
+        Picture canvas(256, kCanvasHeight);
+        canvas.DrawRectangle(Color::Red(), 0, 240, 256, 1);
+
+        int spriteHeight = NES_PPU_Register::PPUCTRL.H() ? 16 : 8;
+        for (size_t i = 0; i < NES_PPU_OAM::SpriteTile.size(); i++)
+        {
+            try
+            {
+                const auto& SpriteYc = NES_PPU_OAM::SpriteYc[i];
+                const auto& SpriteXc = NES_PPU_OAM::SpriteXc[i];
+                const NES_PPU_OAM::Byte2& Attribute = NES_PPU_OAM::SpriteAttribute[i];
+                const NES_PPU_OAM::Byte1& SpriteTile = NES_PPU_OAM::SpriteTile[i];
+                int spriteTopY = SpriteYc->Value() + 1; // see RenderSpriteScanline()'s own FIXED note
+
+                Picture spriteCanvas(8, spriteHeight);
+                if (!NES_PPU_Register::PPUCTRL.H())
+                {
+                    uint16_t tileIndex = SpriteTile.adress->Value();
+                    int bank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
+                    Picture tile = DecodeSpriteTileFresh(tileIndex, Attribute.Palette(), bank);
+                    if (Attribute.FlipH())
+                        tile.RotateFlip(RotateFlipType::RotateNoneFlipX);
+                    if (Attribute.FlipV())
+                        tile.RotateFlip(RotateFlipType::RotateNoneFlipY);
+                    spriteCanvas.DrawNewImage(tile, 0, 0);
+                }
+                else
+                {
+                    int bank = SpriteTile.Bank() ? 1 : 0;
+                    uint16_t topIndex = SpriteTile.Number();
+                    uint16_t bottomIndex = static_cast<uint16_t>(topIndex + 1);
+                    Picture topTile = DecodeSpriteTileFresh(topIndex, Attribute.Palette(), bank);
+                    Picture bottomTile = DecodeSpriteTileFresh(bottomIndex, Attribute.Palette(), bank);
+                    if (Attribute.FlipH())
+                    {
+                        topTile.RotateFlip(RotateFlipType::RotateNoneFlipX);
+                        bottomTile.RotateFlip(RotateFlipType::RotateNoneFlipX);
+                    }
+                    if (Attribute.FlipV())
+                    {
+                        topTile.RotateFlip(RotateFlipType::RotateNoneFlipY);
+                        bottomTile.RotateFlip(RotateFlipType::RotateNoneFlipY);
+                        std::swap(topTile, bottomTile);
+                    }
+                    spriteCanvas.DrawNewImage(topTile, 0, 0);
+                    spriteCanvas.DrawNewImage(bottomTile, 0, 8);
+                }
+
+                if (spriteTopY >= 0 && spriteTopY < kCanvasHeight)
+                    canvas.DrawImage(spriteCanvas, SpriteXc->Value(), spriteTopY);
+            }
+            catch (...)
+            {
+            }
+        }
+        return canvas;
+    }
 }

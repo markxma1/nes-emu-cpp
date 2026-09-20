@@ -75,6 +75,15 @@ namespace NES
         static NES_PPU::Picture getDisplay(bool display = true);
         static NES_PPU::Color getUniversalBackgroundColor();
 
+        // NEW, no C# equivalent - same producer (CPU thread, RenderFrame())/
+        // consumer (UI thread) hand-off as getNameTabeleDebugOverlay(), for
+        // the same reason (see NES_PPU::OAMDebugOverlay()'s own comment for
+        // what this shows and why): a plain read of live OAM state from the
+        // UI thread would race the CPU thread's concurrent OAM DMA/writes,
+        // the exact TSan-confirmed bug class getNameTabeleDebugOverlay()
+        // already fixed once for the Name Table window.
+        static NES_PPU::Picture getOAMDebugOverlay();
+
         // NEW, no C# equivalent - see RenderFrame()'s own comment on
         // nameTableDebugWindowVisible/latestNameTableDebugOverlay for the
         // full story (a real, TSan-confirmed data race: the debug Name
@@ -86,6 +95,11 @@ namespace NES
         // paying to rebuild the (fairly expensive - ~2ms) Name Table
         // snapshot this frame.
         static void setNameTableDebugWindowVisible(bool visible);
+
+        // NEW, no C# equivalent - same purpose as
+        // setNameTableDebugWindowVisible() above, for the OAM Viewer debug
+        // window (see NES_PPU::OAMDebugOverlay()'s own comment).
+        static void setOAMDebugWindowVisible(bool visible);
 
         static void LoadRom(const std::string& path);
 
@@ -137,5 +151,11 @@ namespace NES
         // UI-thread loop iteration - no larger critical section needed.
         static std::atomic<bool> nameTableDebugWindowVisible;
         static NES_PPU::Picture latestNameTableDebugOverlay;
+
+        // NEW, no C# equivalent - same hand-off pattern as
+        // nameTableDebugWindowVisible/latestNameTableDebugOverlay above,
+        // for the OAM Viewer debug window.
+        static std::atomic<bool> oamDebugWindowVisible;
+        static NES_PPU::Picture latestOAMDebugOverlay;
     };
 }
