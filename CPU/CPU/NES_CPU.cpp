@@ -213,6 +213,7 @@ namespace NES
     Mod NES_CPU::mod = Mod::none;
     std::atomic<double> NES_CPU::speedMultiplier{1.0};
     std::atomic<double> NES_CPU::measuredFPS{0.0};
+    std::atomic<long long> NES_CPU::completedFrames{0};
 
     NES_CPU::NES_CPU()
     {
@@ -526,6 +527,7 @@ namespace NES
             if (NES_PPU::AdvanceDots(cycles))
             {
                 NES_Console::RenderFrame();
+                completedFrames.fetch_add(1, std::memory_order_relaxed);
                 framesInFpsWindow++;
                 double fpsWindowSec = std::chrono::duration<double>(Clock::now() - fpsWindowStart).count();
                 if (fpsWindowSec >= 0.5)

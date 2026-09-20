@@ -53,6 +53,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "NES_Console.h"
+#include "NES_CPU.h"
 #include "NES_SaveState.h"
 #include "NES_GamePad.h"
 #include "Interrupt.h"
@@ -1206,14 +1207,46 @@ int main(int argc, char** argv)
     if (const char* playbackEnv = std::getenv("NES_PLAYBACK_INPUT"))
         playbackEvents = LoadPlaybackFile(playbackEnv);
 
+    // FIXED (real bug, found while investigating a user-reported Bram
+    // Stoker's Dracula "flickers between frames, sometimes normal
+    // sometimes text" symptom - see NES_CPU::completedFrames' own comment
+    // in NES_CPU.h for the full story): `uiFrame` used to be a plain
+    // free-running UI-thread loop-iteration counter (`++uiFrame` once per
+    // `cv::waitKeyEx(16)` poll below), completely decoupled from how many
+    // *real* NES frames the CPU thread had actually completed at that
+    // moment - the UI loop and the CPU thread's own real-time pacing
+    // (NES_CPU::Run()'s Sleep()-based throttling) are two independently
+    // paced loops with no frame-lock between them. Found live: replaying
+    // the exact same recorded input file from a cold process start landed
+    // on visibly different game states at the same nominal frame number
+    // depending on concurrent system load, even though the input file
+    // itself never changed - every NES_PLAYBACK_INPUT/NES_AUTO_QUIT_FRAME
+    // frame number in this whole file was silently meaningless as soon as
+    // the two threads drifted out of step. Now sourced from
+    // NES_CPU::completedFrames every iteration instead, so these numbers
+    // refer to real emulated frames, immune to UI-thread scheduling
+    // jitter - and, since real 60Hz interactive play can itself suffer
+    // exactly this kind of hitch (a loaded desktop, a debug window
+    // repaint), this may also be a genuine contributor to the originally
+    // reported live-play symptom, not just a replay-harness artifact.
     long uiFrame = 0;
+    long previousRealFrame = -1;
+    long lastAppliedPlaybackFrame = 0;
 
     bool running = true;
     while (running)
     {
-        ++uiFrame;
+        uiFrame = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
+        // Drain every playback event between the last real frame this loop
+        // observed and the current one (inclusive), not just a single
+        // playbackEvents.find(uiFrame) - completedFrames can legitimately
+        // advance by more than 1 between two UI-thread polls (e.g. this
+        // poll took longer than one real frame's worth of CPU-thread
+        // time), and a plain point-lookup would silently drop any event
+        // whose exact frame number got stepped over.
+        for (long f = lastAppliedPlaybackFrame + 1; f <= uiFrame; f++)
         {
-            auto it = playbackEvents.find(uiFrame);
+            auto it = playbackEvents.find(f);
             if (it != playbackEvents.end())
                 for (const auto& [button, down] : it->second)
                 {
@@ -1223,6 +1256,7 @@ int main(int argc, char** argv)
                         playbackHeld.erase(button);
                 }
         }
+        lastAppliedPlaybackFrame = uiFrame;
         if (std::getenv("NES_TRACE_PC") && uiFrame % 30 == 0)
             std::cout << "  frame " << uiFrame << " PC=0x" << std::hex << NES::NES_Register::PC << std::dec
                       << " xScroll=" << NES::NES_PPU::xScroll << " yScroll=" << NES::NES_PPU::yScroll << std::endl;
@@ -1280,7 +1314,11 @@ int main(int argc, char** argv)
         // PNG of the current frame on the auto-quit tick, for headless
         // black-screen-bug verification (see NES_AUTO_START_FRAME/
         // NES_AUTO_QUIT_FRAME above).
-        if (autoQuitFrame >= 0 && uiFrame == autoQuitFrame)
+        // Edge-triggered (crossed-this-poll), not an exact-match - uiFrame
+        // is now a real frame count that can jump by more than 1 between
+        // two UI-thread polls (see this loop's own FIXED note above), so it
+        // may step *past* autoQuitFrame without ever exactly equaling it.
+        if (autoQuitFrame >= 0 && uiFrame >= autoQuitFrame && previousRealFrame < autoQuitFrame)
         {
             if (std::getenv("NES_TRACE_PPU_STATE"))
                 printPpuState("[quit]");
@@ -1672,6 +1710,7 @@ int main(int argc, char** argv)
         {
             running = false;
         }
+        previousRealFrame = uiFrame;
     }
 
     NES::NES_Console::Stop();

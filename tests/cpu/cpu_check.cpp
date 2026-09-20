@@ -35,11 +35,13 @@
 #include "NES_Register.h"
 #include "NES_SaveState.h"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 
 using namespace NES;
 
@@ -1035,6 +1037,50 @@ namespace
               "RenderBackgroundScanline(): with PPUMASK.b()=true, the rendered pixel must match "
               "the tile actually decoded from live nametable/pattern-table data");
     }
+
+    /// Regression test for NES_CPU::completedFrames - see its own comment
+    /// in NES_CPU.h for the full story (a real bug found live via
+    /// non-reproducible screenshots: replaying the exact same recorded
+    /// Bram Stoker's Dracula input file from a cold process start, twice,
+    /// landed on visibly different game states at the same nominal frame
+    /// number depending on concurrent system load). NES/main.cpp's UI loop
+    /// used to number frames off its own free-running loop-iteration
+    /// counter, decoupled from how many real NES frames the CPU thread had
+    /// actually completed; this counter (incremented in NES_CPU::Run(),
+    /// paired 1:1 with each real NES_Console::RenderFrame() call) is the
+    /// fix, giving the UI thread a real, monotonic count of completed
+    /// 262-scanline frames instead.
+    ///
+    /// Exercises the real NES_CPU::Run() loop (via NES_Console::Run(), the
+    /// same entry point NES/main.cpp's own CPU thread uses) for a short,
+    /// bounded slice of real time - not just the atomic in isolation -
+    /// since the actual bug this guards against is a missing/misplaced
+    /// increment at Run()'s one real call site, which manipulating the
+    /// atomic directly wouldn't catch. speedMultiplier is set to its
+    /// maximum first so the loop advances many real frames well within the
+    /// short real-time budget below, keeping this fast and (with a loose,
+    /// order-of-magnitude lower bound rather than an exact count)
+    /// non-flaky under real scheduling jitter.
+    void TestCompletedFramesCountsRealRunLoopFrames()
+    {
+        NES::NES_CPU::speedMultiplier.store(NES::NES_CPU::kMaxSpeedMultiplier, std::memory_order_relaxed);
+        long long before = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
+
+        std::thread cpuThread([]() { NES::NES_Console::Run(); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        NES::NES_Console::Stop();
+        cpuThread.join();
+
+        long long after = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
+        Check(after >= before + 10,
+              "NES_CPU::completedFrames: running the real NES_CPU::Run() loop (via NES_Console::Run(), "
+              "same entry point NES/main.cpp's CPU thread uses) for 150ms at max speed must advance "
+              "this counter by a meaningful amount (got " + std::to_string(after - before) +
+              "), proving RenderFrame() and the counter increment are still paired at Run()'s real "
+              "call site - not just that the atomic itself supports being incremented");
+
+        NES::NES_CPU::speedMultiplier.store(1.0, std::memory_order_relaxed); // restore the default for later tests
+    }
 }
 
 int main()
@@ -1059,6 +1105,7 @@ int main()
     TestDrawDisplayFrameWraparoundIsContinuous();
     TestScrollSurvivesPPUCTRLWriteAfterPPUSCROLL();
     TestBackgroundScanlineRespectsRenderEnableBit();
+    TestCompletedFramesCountsRealRunLoopFrames();
 
     if (failures == 0)
     {

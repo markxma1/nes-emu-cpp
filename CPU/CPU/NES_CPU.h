@@ -74,6 +74,36 @@ namespace NES
         // for the CPU-speed debug window (NES/main.cpp).
         static std::atomic<double> measuredFPS;
 
+        // NEW, no C# equivalent - a real, monotonic count of completed
+        // 262-scanline NES frames (incremented in Run(), right alongside
+        // the NES_Console::RenderFrame() call it's paired with - see that
+        // call site's own comment). FIXED (real bug, found while
+        // investigating a user-reported Bram Stoker's Dracula "flickers
+        // between frames, sometimes normal sometimes text" symptom):
+        // NES/main.cpp's UI-thread loop (NES_PLAYBACK_INPUT replay,
+        // NES_AUTO_QUIT_FRAME, and the original recording feature itself)
+        // used to number frames via its own free-running loop-iteration
+        // counter (`uiFrame`, incremented once per `cv::waitKeyEx(16)`
+        // poll), completely decoupled from how many *real* NES frames the
+        // CPU thread had actually completed at that moment - the UI loop
+        // and the CPU thread's own real-time pacing (Sleep(), see Run()'s
+        // own comment) are two independently-paced loops with no
+        // frame-lock between them. Under normal conditions the two stay
+        // roughly in step, but any real-world timing hitch (OS scheduling
+        // jitter, background CPU load, a debug window repaint) desyncs
+        // them - found live: replaying the exact same recorded input file
+        // from a cold process start, twice, landed on visibly different
+        // game states at the same nominal "frame 3768" depending on
+        // concurrent system load, even though the input file itself never
+        // changed. A recorded button press tagged "frame N" would then get
+        // replayed against the CPU thread's Nth *UI-loop-tick*, not its
+        // Nth *real emulated frame* - silently shifting every input's real
+        // timing by however far the two loops had drifted apart at
+        // recording or replay time. Exposing this real per-frame counter
+        // lets NES/main.cpp key playback/quit-frame numbering off actual
+        // emulated frames instead, immune to UI-thread scheduling jitter.
+        static std::atomic<long long> completedFrames;
+
         /// Runs the fetch-decode-execute loop until Interrupt::POWER goes
         /// false. NEW behavior, no C# equivalent: also advances a real
         /// per-scanline/per-dot PPU clock after every Step() with that
