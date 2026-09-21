@@ -174,6 +174,27 @@ namespace NES
         return TempDisplay;
     }
 
+    // See the .h's own comment for the full story (the fast-path renderer
+    // for NES_RENDER_FROM_STATE) - reproduces exactly what OnScanlineStart()
+    // does for scanline 0 (fresh buffers + tile-cache clear) and then for
+    // scanlines 0-239 (RenderBackgroundScanline()/RenderSpriteScanline()),
+    // then composites via Display() - but as one direct, synchronous loop
+    // instead of driven by AdvanceDots()'s real per-instruction cycle
+    // stream, since there is no CPU execution happening at all here.
+    NES_PPU::Picture NES_PPU::RenderStaticSnapshot()
+    {
+        backgroundBuffer = Picture(256, 240);
+        spriteBehindBuffer = Picture(256, 240);
+        spriteFrontBuffer = Picture(256, 240);
+        ClearFreshTileCaches();
+        for (int screenY = 0; screenY <= 239; screenY++)
+        {
+            RenderBackgroundScanline(screenY);
+            RenderSpriteScanline(screenY);
+        }
+        return Display();
+    }
+
     int NES_PPU::currentDot = 0;
     int NES_PPU::currentScanline = 0;
     std::function<void()> NES_PPU::scanlineCallback;
@@ -447,6 +468,19 @@ namespace NES
             uint16_t tRight = static_cast<uint16_t>(
                 NES_PPU_Memory::NameTableN[static_cast<size_t>(nrRight)][static_cast<size_t>(k)]->Value());
             logicalRow.DrawNewImage(DecodeBackgroundTileFresh(tRight, attrRight[static_cast<size_t>(k)]), (32 + col) * 8, 0);
+        }
+
+        // TEMPORARY diagnostic aid - opt-in via NES_TRACE_TILE0_COLOR, off by
+        // default. Dumps tile ID 0's decoded (0,0) pixel color at a handful
+        // of scanlines, to check whether tile 0 (which fills the otherwise-
+        // blank bottom nametable rows) actually decodes differently before
+        // vs. after a mid-frame CHR-bank switch.
+        if (std::getenv("NES_TRACE_TILE0_COLOR") && (screenY == 50 || screenY == 150 || screenY == 220))
+        {
+            NES_PPU::Color c = DecodeBackgroundTileFresh(0, attrLeft[static_cast<size_t>(localTileRow * 32)]).GetPixel(0, 0);
+            std::cerr << "[tile0color] screenY=" << screenY << " R=" << (int)c.R << " G=" << (int)c.G
+                      << " B=" << (int)c.B << " A=" << (int)c.A
+                      << " PPUCTRL.B()=" << NES_PPU_Register::PPUCTRL.B() << std::endl;
         }
 
         // X wraparound into the doubled 0..511 logical space, same

@@ -118,6 +118,27 @@ namespace NES
         /// Renders one full frame (background + sprites-behind + sprites-in-front).
         static Picture Display();
 
+        /// NEW, no C# equivalent - renders one full frame from *whatever*
+        /// live PPU/OAM/CHR/palette state is currently poked into memory,
+        /// by directly looping RenderBackgroundScanline()/
+        /// RenderSpriteScanline() over scanlines 0-239 and compositing via
+        /// Display() - without running any CPU cycles or scanline-timed
+        /// mapper IRQ/bank-switch hooks at all. Built for a debug tool that
+        /// loads a saved per-frame RAM/VRAM/OAM/CHR snapshot (see
+        /// NES/main.cpp's NES_RENDER_FROM_STATE) and wants a picture back
+        /// in milliseconds instead of re-running the whole emulator from
+        /// power-on to reach that frame - dramatically faster for scanning
+        /// many frames, at a real, known cost: a mapper that changes CHR
+        /// banks *mid-frame* (e.g. MMC3's scanline-IRQ-driven status-bar
+        /// split - see Mapper_MMC3::OnScanline()) only has ONE CHR/palette
+        /// state to render with here, so a frame that genuinely looks
+        /// different in its top half vs. bottom half on real hardware will
+        /// render with only one of those halves correct. Fine for the vast
+        /// majority of frames (most have no mid-frame bank switch at all);
+        /// for a frame suspected of one, a full real replay remains the
+        /// only accurate source.
+        static Picture RenderStaticSnapshot();
+
         /// Debug-only: renders every one of OAM's 64 sprites at its raw
         /// (X, Y) position, including ones parked off the bottom of the
         /// real screen (Y>=240) that real hardware never displays - see

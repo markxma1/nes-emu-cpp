@@ -62,6 +62,7 @@
 #include "NES_PPU_OAM.h"
 #include "../NES_PPU/NES_PPU_Folder/NES_PPU.h"
 #include "../NES_PPU/Memory/NES_PPU_Memory.h"
+#include "../NES_PPU/Memory/NES_PPU_AttributeTable.h"
 #include "NES_Register.h"
 #include "NES_Memory.h"
 #include "Color.h"
@@ -928,6 +929,97 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // TEMPORARY diagnostic aid - opt-in via NES_RENDER_FROM_STATE (a
+    // NES_DUMP_STATE_LOG file path) + NES_RENDER_FROM_STATE_FRAME (a frame
+    // number) + NES_RENDER_FROM_STATE_OUT (output PNG path), off by
+    // default. Loads that one frame's saved RAM/VRAM/OAM/CHR/PPU-register
+    // record directly into live memory and renders it via
+    // NES_PPU::RenderStaticSnapshot() (see its own comment) - no CPU
+    // execution, no replay from power-on, just the render step - built so
+    // a debug tool can get a frame's picture in milliseconds instead of
+    // minutes for a frame deep into a long recorded session. Runs once and
+    // exits immediately, before the real CPU thread/UI loop below ever
+    // starts.
+    if (const char* renderStatePath = std::getenv("NES_RENDER_FROM_STATE"))
+    {
+        const char* frameEnv = std::getenv("NES_RENDER_FROM_STATE_FRAME");
+        const char* outEnv = std::getenv("NES_RENDER_FROM_STATE_OUT");
+        if (!frameEnv || !outEnv)
+        {
+            std::cerr << "NES_RENDER_FROM_STATE needs NES_RENDER_FROM_STATE_FRAME and "
+                         "NES_RENDER_FROM_STATE_OUT set too." << std::endl;
+            return 1;
+        }
+        long targetFrame = std::atol(frameEnv);
+        constexpr size_t kBaseRecord = 4 + 0x800 + 4 * 960 + 4 * 64 + 16 + 16;
+        constexpr size_t kExtra = 1 + 1 + 4 + 4 + 4096 + 4096 + 1; // ... + mirroring byte
+        constexpr size_t kRecord = kBaseRecord + kExtra;
+
+        std::ifstream in(renderStatePath, std::ios::binary);
+        if (!in)
+        {
+            std::cerr << "NES_RENDER_FROM_STATE: cannot open " << renderStatePath << std::endl;
+            return 1;
+        }
+        std::vector<char> rec(kRecord);
+        bool found = false;
+        while (in.read(rec.data(), static_cast<std::streamsize>(kRecord)))
+        {
+            uint32_t frameLE;
+            std::memcpy(&frameLE, rec.data(), 4);
+            if (static_cast<long>(frameLE) == targetFrame)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            std::cerr << "NES_RENDER_FROM_STATE: frame " << targetFrame << " not found in "
+                      << renderStatePath << std::endl;
+            return 1;
+        }
+
+        // Mirroring byte lives at the very end of the record (appended
+        // there for compatibility with the writer's existing field order) -
+        // apply it FIRST, before poking any nametable/attribute data, so
+        // NameTableN[0..3] alias the correct physical banks for this
+        // capture (see NES_DUMP_STATE_LOG's own FIXED note on this exact
+        // bug for the full story).
+        NES::INES::arrangement = static_cast<NES::INES::Mirror>(
+            static_cast<uint8_t>(rec[kRecord - 1]));
+        NES::NES_PPU_Memory::RewireNameTableMirroring();
+
+        size_t off = 4;
+        for (int a = 0; a < 0x800; a++)
+            NES::NES_Memory::Memory[static_cast<size_t>(a)]->value(static_cast<uint8_t>(rec[off++]));
+        for (auto& nt : NES::NES_PPU_Memory::NameTableN)
+            for (auto& cell : nt)
+                cell->value(static_cast<uint8_t>(rec[off++]));
+        for (auto& at : NES::NES_PPU_Memory::AttributeTableN)
+            for (auto& cell : at)
+                cell->value(static_cast<uint8_t>(rec[off++]));
+        for (int i = 0; i < 16; i++)
+            NES::NES_PPU_Memory::BGPalette[static_cast<size_t>(i)]->value(static_cast<uint8_t>(rec[off++]));
+        for (int i = 0; i < 16; i++)
+            NES::NES_PPU_Memory::SpritePalette[static_cast<size_t>(i)]->value(static_cast<uint8_t>(rec[off++]));
+        NES::NES_PPU_Register::PPUCTRL.adress->value(static_cast<uint8_t>(rec[off++]));
+        NES::NES_PPU_Register::PPUMASK.adress->value(static_cast<uint8_t>(rec[off++]));
+        int32_t xs, ys;
+        std::memcpy(&xs, rec.data() + off, 4); off += 4;
+        std::memcpy(&ys, rec.data() + off, 4); off += 4;
+        NES::NES_PPU::xScroll = xs;
+        NES::NES_PPU::yScroll = ys;
+        for (int bank = 0; bank < 2; bank++)
+            for (auto& cell : NES::NES_PPU_Memory::PatternTableN[static_cast<size_t>(bank)])
+                cell->value(static_cast<uint8_t>(rec[off++]));
+
+        NES::NES_PPU::Picture pic = NES::NES_PPU::RenderStaticSnapshot();
+        cv::imwrite(outEnv, pic.Image());
+        std::cout << "NES_RENDER_FROM_STATE: wrote " << outEnv << " for frame " << targetFrame << std::endl;
+        return 0;
+    }
+
     // TEMPORARY diagnostic aid - opt-in via NES_TRACE_WRITE (a comma-
     // separated list of hex zero-page addresses), off by default. Hooks
     // each address's AfterSet directly, logging the new value and the
@@ -952,7 +1044,8 @@ int main(int argc, char** argv)
             NES::NES_Memory::Memory[addr]->AfterSet([addr](uint8_t v) {
                 std::cerr << "[WRITE] $" << std::hex << addr << " = 0x" << static_cast<int>(v)
                           << " (near PC=0x" << NES::NES_Register::PC << ")" << std::dec
-                          << " scanline=" << NES::NES_PPU::CurrentScanline() << std::endl;
+                          << " scanline=" << NES::NES_PPU::CurrentScanline()
+                          << " frame=" << NES::NES_CPU::completedFrames.load(std::memory_order_relaxed) << std::endl;
             });
             if (comma == std::string::npos) break;
             pos = comma + 1;
@@ -1522,6 +1615,27 @@ int main(int argc, char** argv)
                     }
                 }
             }
+
+            // TEMPORARY diagnostic aid - opt-in via NES_DUMP_PALETTE, off by
+            // default. Prints every raw BGPalette/SpritePalette entry plus
+            // the current PPUMASK value at the quit frame, to directly
+            // compare backdrop/palette RAM state between two different
+            // screens (e.g. normal gameplay vs. a stage-clear screen)
+            // instead of inferring it indirectly from rendered screenshots.
+            if (std::getenv("NES_DUMP_PALETTE"))
+            {
+                std::cerr << "[palette] PPUMASK=0x" << std::hex
+                          << static_cast<int>(NES::NES_PPU_Register::PPUMASK.adress->value()) << std::dec
+                          << std::endl;
+                std::cerr << "[palette] BG:";
+                for (int i = 0; i < 16; i++)
+                    std::cerr << " " << std::hex << static_cast<int>(NES::NES_PPU_Memory::BGPalette[static_cast<size_t>(i)]->value()) << std::dec;
+                std::cerr << std::endl;
+                std::cerr << "[palette] Sprite:";
+                for (int i = 0; i < 16; i++)
+                    std::cerr << " " << std::hex << static_cast<int>(NES::NES_PPU_Memory::SpritePalette[static_cast<size_t>(i)]->value()) << std::dec;
+                std::cerr << std::endl;
+            }
         }
 
         cv::Mat scaled;
@@ -1705,6 +1819,108 @@ int main(int argc, char** argv)
         }
         RecordInputTick(uiFrame);
         TraceInputSourcesIfRequested(uiFrame);
+
+        // TEMPORARY diagnostic aid - opt-in via NES_DUMP_STATE_LOG (a file
+        // path), off by default. Appends one fixed-size binary record per
+        // real emulated frame: frame number (4 bytes LE) + full work RAM
+        // ($0000-$07FF, 2048B, includes the $0200-page OAM shadow buffer)
+        // + all 4 physical nametable banks (960B each) + their attribute
+        // tables (64B each) + BG/sprite palettes (16B each) - a complete
+        // per-frame CPU/VRAM/OAM/nametable snapshot meant to be diffed
+        // directly (byte-for-byte, via `cmp`) against an equivalent
+        // per-frame log from a reference emulator (FCEUX, driven by the
+        // same recorded input via its own frame-advance loop - deterministic,
+        // not real-time-paced, same as this port's own uiFrame/
+        // completedFrames-based replay) to find the exact first frame two
+        // emulators' state diverges, rather than guessing from rendered
+        // screenshots alone.
+        if (const char* stateLogPath = std::getenv("NES_DUMP_STATE_LOG"))
+        {
+            static std::ofstream stateLog(stateLogPath, std::ios::binary | std::ios::trunc);
+            // Guard against writing the same frame twice - the UI loop can
+            // iterate more than once while completedFrames (uiFrame) stays
+            // put (same reasoning as the playback-event drain loop above),
+            // and without this guard that produced duplicate records for
+            // the same frame number, found live comparing record counts
+            // against a reference emulator's own per-frame log.
+            static long lastLoggedFrame = -1;
+            if (uiFrame != lastLoggedFrame)
+            {
+                lastLoggedFrame = uiFrame;
+                uint32_t frameLE = static_cast<uint32_t>(uiFrame);
+                stateLog.write(reinterpret_cast<const char*>(&frameLE), 4);
+                for (int a = 0; a < 0x800; a++)
+                {
+                    uint8_t b = NES::NES_Console::getMemoryByte(static_cast<uint16_t>(a));
+                    stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                }
+                // Logical (CPU/$2000-mapped) view, not the physical banks -
+                // directly comparable to a reference emulator's own
+                // ppu.readbyte($2000/$2400/$2800/$2C00 + offset) reads, and
+                // matches what RenderBackgroundScanline() itself actually reads.
+                for (auto& nt : NES::NES_PPU_Memory::NameTableN)
+                    for (auto& cell : nt)
+                    {
+                        uint8_t b = cell->value();
+                        stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                    }
+                for (auto& at : NES::NES_PPU_Memory::AttributeTableN)
+                    for (auto& cell : at)
+                    {
+                        uint8_t b = cell->value();
+                        stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                    }
+                for (int i = 0; i < 16; i++)
+                {
+                    uint8_t b = NES::NES_PPU_Memory::BGPalette[static_cast<size_t>(i)]->value();
+                    stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                }
+                for (int i = 0; i < 16; i++)
+                {
+                    uint8_t b = NES::NES_PPU_Memory::SpritePalette[static_cast<size_t>(i)]->value();
+                    stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                }
+                // PPUCTRL/PPUMASK raw values, live scroll, and both 4KB CHR
+                // banks - needed (on top of everything above) for
+                // NES_PPU::RenderStaticSnapshot() (see its own comment) to
+                // reproduce a real frame from this record alone, without
+                // re-running the CPU at all. Not needed by the plain
+                // byte-diff use of this log, only by the fast-render path.
+                uint8_t ppuctrl = NES::NES_PPU_Register::PPUCTRL.adress->value();
+                uint8_t ppumask = NES::NES_PPU_Register::PPUMASK.adress->value();
+                stateLog.write(reinterpret_cast<const char*>(&ppuctrl), 1);
+                stateLog.write(reinterpret_cast<const char*>(&ppumask), 1);
+                int32_t xs = static_cast<int32_t>(NES::NES_PPU::xScroll);
+                int32_t ys = static_cast<int32_t>(NES::NES_PPU::yScroll);
+                stateLog.write(reinterpret_cast<const char*>(&xs), 4);
+                stateLog.write(reinterpret_cast<const char*>(&ys), 4);
+                for (int bank = 0; bank < 2; bank++)
+                    for (auto& cell : NES::NES_PPU_Memory::PatternTableN[static_cast<size_t>(bank)])
+                    {
+                        uint8_t b = cell->value();
+                        stateLog.write(reinterpret_cast<const char*>(&b), 1);
+                    }
+                // FIXED (real bug, found live via NES_RENDER_FROM_STATE
+                // producing a solid-black frame despite genuinely
+                // non-blank captured nametable/CHR data): NameTableN[0..3]
+                // are logical slots aliased onto only 2 *physical* banks,
+                // rewired by RewireNameTableMirroring() from INES::arrangement
+                // (see its own comment for the exact pairing per mirroring
+                // mode). A fresh process (as NES_RENDER_FROM_STATE always
+                // is - no CPU ever ran to set the mapper's mirroring
+                // register) starts at whatever INES::arrangement defaults
+                // to, which need not match the mirroring mode active when
+                // this record was captured - poking NameTableN[0..3] in
+                // sequence under the *wrong* aliasing silently makes a
+                // later slot's poke overwrite an earlier, aliased slot's,
+                // corrupting the physical bank entirely. Capturing the
+                // mirroring mode here lets the reader call
+                // RewireNameTableMirroring() with the *correct* aliasing
+                // first, before poking any nametable data at all.
+                uint8_t mirroring = static_cast<uint8_t>(NES::INES::arrangement);
+                stateLog.write(reinterpret_cast<const char*>(&mirroring), 1);
+            }
+        }
 
         if (cv::getWindowProperty(windowName, cv::WND_PROP_VISIBLE) < 1)
         {
