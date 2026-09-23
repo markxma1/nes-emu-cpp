@@ -357,6 +357,9 @@ namespace NES
         static bool splitPrevRendered;
         static int splitStartLine;   // first scanline drawn from splitV
         static void ApplySplitScroll(int scanline);
+        /// $2001 bits 1/2 clear -> hide background/sprites in the leftmost 8
+        /// pixels (http://wiki.nesdev.com/w/index.php/PPU_registers#Mask_.28.242001.29_.3E_write).
+        static void ClipLeftColumn(int screenY);
         static int xScrollTemp;
         static int yScrollTemp;
 

@@ -131,6 +131,17 @@ namespace NES
     // compose the picture - only the vblank/status timing moved, not frame
     // composition itself (see the plan for the per-scanline rendering
     // rewrite that still needs to happen for that part).
+    void NES_PPU::ClipLeftColumn(int screenY)
+    {
+        if (!NES_PPU_Register::PPUMASK.m())
+            backgroundBuffer.FillRectangle(Color::Transparent(), 0, screenY, 8, screenY + 1);
+        if (!NES_PPU_Register::PPUMASK.M())
+        {
+            spriteBehindBuffer.FillRectangle(Color::Transparent(), 0, screenY, 8, screenY + 1);
+            spriteFrontBuffer.FillRectangle(Color::Transparent(), 0, screenY, 8, screenY + 1);
+        }
+    }
+
     NES_PPU::Picture NES_PPU::Display()
     {
         Draw(true);
@@ -185,6 +196,7 @@ namespace NES
         {
             RenderBackgroundScanline(screenY);
             RenderSpriteScanline(screenY);
+            ClipLeftColumn(screenY);
         }
         return Display();
     }
@@ -326,6 +338,7 @@ namespace NES
             ApplySplitScroll(scanline);
             RenderBackgroundScanline(scanline);
             RenderSpriteScanline(scanline);
+            ClipLeftColumn(scanline);
         }
         else if (scanline == 241)
         {

@@ -191,6 +191,41 @@ namespace
         NES_PPU_Memory::BGPalette[0]->Value(0x0F);
     }
 
+    /// $2001 bit 1 clear hides the background in the leftmost 8 pixels; the
+    /// backdrop colour shows there instead (Dracula relies on this).
+    void TestLeftColumnMask()
+    {
+        NES_PPU_Register::PPUCTRL.B(false);
+        NES_PPU_Register::PPUMASK.b(true);
+        NES_PPU_Register::PPUMASK.s(false);
+        constexpr uint16_t kSolidTile = 212;
+        for (int i = 0; i < 8; ++i)
+        {
+            NES_PPU_Memory::PatternTableN[0][kSolidTile * 16 + i]->Value(0xFF);
+            NES_PPU_Memory::PatternTableN[0][kSolidTile * 16 + 8 + i]->Value(0x00);
+        }
+        for (size_t k = 0; k < 960; ++k)
+            NES_PPU_Memory::NameTableN[0][k]->Value(kSolidTile);
+        for (auto& cell : NES_PPU_Memory::AttributeTableN[0])
+            cell->Value(0);
+        NES_PPU_Memory::BGPalette[0]->Value(0x21);
+        NES_PPU_Memory::BGPalette[1]->Value(0x16);
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+
+        NES_PPU_Register::PPUMASK.m(false);
+        NES::NES_PPU::RenderStaticSnapshot();
+        Check(NES::NES_PPU::BackgroundBufferPixel(3, 10).A == 0,
+              "left column: with $2001 bit 1 clear, background pixels x<8 must be hidden");
+        Check(NES::NES_PPU::BackgroundBufferPixel(20, 10).A != 0,
+              "left column: background beyond x=8 must stay visible");
+        NES_PPU_Register::PPUMASK.m(true);
+        NES::NES_PPU::RenderStaticSnapshot();
+        Check(NES::NES_PPU::BackgroundBufferPixel(3, 10).A != 0,
+              "left column: with $2001 bit 1 set, background pixels x<8 are shown");
+        NES_PPU_Memory::BGPalette[1]->Value(0x0F);
+    }
+
     /// Controller port: all buttons released at power-up (SELECT used to start
     /// pressed), reads carry open-bus bit 6 ($40, the high address byte), and
     /// a strobe write always restarts the read sequence at button A.
@@ -254,9 +289,9 @@ namespace
         NES::NES_PPU::Color red = NES::NES_PPU::DecodeBackgroundTileFresh(kRedTile, 0).GetPixel(0, 0);
         NES::NES_PPU::Color blue = NES::NES_PPU::DecodeBackgroundTileFresh(kBlueTile, 0).GetPixel(0, 0);
         Check(!(red == blue), "split test setup: red and blue tiles must differ");
-        Check(NES::NES_PPU::BackgroundBufferPixel(0, 30) == red,
+        Check(NES::NES_PPU::BackgroundBufferPixel(20, 30) == red,
               "scanline split: rows before the $2006 load keep the original nametable rows");
-        Check(NES::NES_PPU::BackgroundBufferPixel(0, 80) == blue,
+        Check(NES::NES_PPU::BackgroundBufferPixel(20, 80) == blue,
               "scanline split: rows after the $2006 load are drawn from the loaded address");
 
         while (NES::NES_PPU::CurrentScanline() != 261)
@@ -1320,6 +1355,7 @@ int main()
     TestNmiRestoresInterruptFlagOnRti();
     TestSpritePaletteMirrorsBackdrop();
     TestBackdropColourShowsThroughTransparentBackground();
+    TestLeftColumnMask();
     TestControllerReadProtocol();
     TestMidFrameAddressLoadSplitsTheScreen();
     TestIrqDispatchDoesNotStallIndefinitely();
