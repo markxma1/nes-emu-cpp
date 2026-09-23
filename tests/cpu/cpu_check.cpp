@@ -278,7 +278,7 @@ namespace
     /// and from a $2007 auto-increment - PPUCTRL.I()'s 32-byte step - that
     /// could overshoot the $4000 wraparound point without landing on it
     /// exactly), and indexing it via operator[] is undefined behavior, not
-    /// a safe bounds-checked exception, unlike C#'s array. This test would
+    /// a safe bounds-checked exception. This test would
     /// crash (or, run under AddressSanitizer, be flagged immediately) if
     /// either mask regressed.
     void TestPPUAddressOverflow()
@@ -1088,6 +1088,135 @@ namespace
 
         NES::NES_CPU::speedMultiplier.store(1.0, std::memory_order_relaxed); // restore the default for later tests
     }
+
+    /// Regression test for NES_CPU::Step()'s branch cycle-counting fix -
+    /// see kPageCrossSensitiveOpcode's own comment in NES_CPU.cpp for the
+    /// full story (kCycleTable never accounted for the real "+1 if taken,
+    /// +1 more if the target crosses a page" rule -
+    /// http://wiki.nesdev.com/w/index.php/CPU_addressing_modes). Writes a
+    /// real BNE instruction directly into memory and checks Step()'s
+    /// *returned cycle count* (not just PC) for all three real-hardware
+    /// cases: not taken, taken within the same page, taken across a page
+    /// boundary.
+    void TestBranchCycleCounting()
+    {
+        constexpr uint8_t kBNE = 0xD0;
+        constexpr int kBaseCycles = 2; // kCycleTable[0xD0]
+
+        // Not taken: Z=1 (BNE branches only when Z=0).
+        NES_Register::PC = 0x8000;
+        NES_Memory::Memory[0x8000]->value(kBNE);
+        NES_Memory::Memory[0x8001]->value(0x05);
+        NES_Register::P.Zero(true);
+        int cyclesNotTaken = NES_CPU::Step();
+        Check(cyclesNotTaken == kBaseCycles,
+              "BNE not taken: Step() must return exactly kCycleTable[0xD0]=2, no extra cycles "
+              "(got " + std::to_string(cyclesNotTaken) + ")");
+
+        // Taken, same page: target 0x8007 (2-byte instruction + 0x05 offset
+        // from 0x8002) stays within page 0x80.
+        NES_Register::PC = 0x8000;
+        NES_Memory::Memory[0x8000]->value(kBNE);
+        NES_Memory::Memory[0x8001]->value(0x05);
+        NES_Register::P.Zero(false);
+        int cyclesTakenSamePage = NES_CPU::Step();
+        Check(cyclesTakenSamePage == kBaseCycles + 1,
+              "BNE taken, same page: Step() must return kCycleTable[0xD0]+1=3 "
+              "(got " + std::to_string(cyclesTakenSamePage) + ")");
+
+        // Taken, crosses a page: start near the end of page 0x80 with an
+        // offset large enough that target 0x80F2+0x14=0x8106 lands in page
+        // 0x81.
+        NES_Register::PC = 0x80F0;
+        NES_Memory::Memory[0x80F0]->value(kBNE);
+        NES_Memory::Memory[0x80F1]->value(0x14);
+        NES_Register::P.Zero(false);
+        int cyclesTakenPageCross = NES_CPU::Step();
+        Check(cyclesTakenPageCross == kBaseCycles + 2,
+              "BNE taken, crosses page: Step() must return kCycleTable[0xD0]+2=4 "
+              "(got " + std::to_string(cyclesTakenPageCross) + ")");
+    }
+
+    /// Regression test for NES_CPU::Step()'s indexed-addressing page-cross
+    /// cycle-counting fix - see kPageCrossSensitiveOpcode's own comment in
+    /// NES_CPU.cpp. Confirms the dynamic +1 applies to a *read* instruction
+    /// (LDA abs,X) when it crosses a page, is absent when it doesn't, and -
+    /// critically, since Parameter::ax()/ay()/zpy1() are shared by
+    /// read/write/RMW opcodes alike - is *never* applied to a write (STA
+    /// abs,X), which real hardware always charges the same fixed cost
+    /// either way (already correct as a flat kCycleTable value).
+    void TestPageCrossOnlyAppliesToReadInstructions()
+    {
+        constexpr uint8_t kLDA_absX = 0xBD;
+        constexpr uint8_t kSTA_absX = 0x9D;
+        constexpr int kLdaBase = 4; // kCycleTable[0xBD]
+        constexpr int kStaBase = 5; // kCycleTable[0x9D]
+
+        // LDA $30F0,X with X=0x20 -> 0x3110, crosses from page 0x30 to 0x31.
+        NES_Register::PC = 0x8200;
+        NES_Register::X = 0x20;
+        NES_Memory::Memory[0x8200]->value(kLDA_absX);
+        NES_Memory::Memory[0x8201]->value(0xF0);
+        NES_Memory::Memory[0x8202]->value(0x30);
+        int ldaCrossing = NES_CPU::Step();
+        Check(ldaCrossing == kLdaBase + 1,
+              "LDA abs,X crossing a page: Step() must return kCycleTable[0xBD]+1=5 "
+              "(got " + std::to_string(ldaCrossing) + ")");
+
+        // LDA $3000,X with X=0x20 -> 0x3020, same page - no extra cycle.
+        NES_Register::PC = 0x8200;
+        NES_Register::X = 0x20;
+        NES_Memory::Memory[0x8200]->value(kLDA_absX);
+        NES_Memory::Memory[0x8201]->value(0x00);
+        NES_Memory::Memory[0x8202]->value(0x30);
+        int ldaSamePage = NES_CPU::Step();
+        Check(ldaSamePage == kLdaBase,
+              "LDA abs,X same page: Step() must return kCycleTable[0xBD]=4, no extra cycle "
+              "(got " + std::to_string(ldaSamePage) + ")");
+
+        // STA $30F0,X with X=0x20 -> 0x3110, crosses a page too, but STA is
+        // a *write* - real hardware charges the same fixed cost regardless.
+        NES_Register::PC = 0x8200;
+        NES_Register::X = 0x20;
+        NES_Memory::Memory[0x8200]->value(kSTA_absX);
+        NES_Memory::Memory[0x8201]->value(0xF0);
+        NES_Memory::Memory[0x8202]->value(0x30);
+        int staCrossing = NES_CPU::Step();
+        Check(staCrossing == kStaBase,
+              "STA abs,X crossing a page: Step() must still return kCycleTable[0x9D]=5, no extra "
+              "cycle - the page-cross penalty is read-only-instruction-specific on real hardware "
+              "(got " + std::to_string(staCrossing) + ")");
+    }
+
+    /// Regression test for OAM DMA's real CPU stall - see
+    /// NES_PPU_OAM::OAMDMA()'s own comment for the full story ($4014 stalls
+    /// the CPU for 513 or 514 cycles on real hardware, a long-documented
+    /// explicit non-goal of this port's scanline-accurate redesign, found
+    /// directly relevant while root-causing a real CPU-state divergence
+    /// from a reference emulator - http://wiki.nesdev.com/w/index.php/PPU_OAM,
+    /// "DMA"). Writes `STA $4014` directly and checks Step()'s returned
+    /// cycle count is the base STA-absolute cost (4) plus *either* 513 or
+    /// 514 - parity-agnostic, since NES_CPU::totalCyclesEver is a real
+    /// global counter shared by every test in this file (order-dependent,
+    /// not something this test can predict or reset without disturbing
+    /// every other test's own cycle accounting).
+    void TestOAMDMAStallsCPU()
+    {
+        constexpr uint8_t kSTA_abs = 0x8D;
+        constexpr int kStaBase = 4; // kCycleTable[0x8D]
+
+        NES_Register::PC = 0x8300;
+        NES_Register::A = 0x02; // DMA source page $02
+        NES_Memory::Memory[0x8300]->value(kSTA_abs);
+        NES_Memory::Memory[0x8301]->value(0x14);
+        NES_Memory::Memory[0x8302]->value(0x40); // operand = $4014
+        int cycles = NES_CPU::Step();
+        Check(cycles == kStaBase + 513 || cycles == kStaBase + 514,
+              "STA $4014 (OAM DMA trigger): Step() must return kCycleTable[0x8D] (4) plus the real "
+              "513-or-514-cycle CPU stall real hardware imposes, not the bare instruction cost alone "
+              "(got " + std::to_string(cycles) + ", expected " + std::to_string(kStaBase + 513) +
+              " or " + std::to_string(kStaBase + 514) + ")");
+    }
 }
 
 int main()
@@ -1113,6 +1242,9 @@ int main()
     TestScrollSurvivesPPUCTRLWriteAfterPPUSCROLL();
     TestBackgroundScanlineRespectsRenderEnableBit();
     TestCompletedFramesCountsRealRunLoopFrames();
+    TestBranchCycleCounting();
+    TestPageCrossOnlyAppliesToReadInstructions();
+    TestOAMDMAStallsCPU();
 
     if (failures == 0)
     {

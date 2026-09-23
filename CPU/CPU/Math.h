@@ -20,9 +20,9 @@
 namespace NES
 {
     /// @brief Shared arithmetic/logic/shift/compare implementations used by the
-    /// opcode table in Assembly_6502. Port of CPU/CPU/Math.cs.
-    /// Named `Math` like the original C# class - safe in C++ since it lives in
-    /// namespace NES and nothing here collides with <cmath>.
+    /// opcode table in Assembly_6502.
+    /// Named `Math` - safe in C++ since it lives in namespace NES and nothing
+    /// here collides with <cmath>.
     class Math
     {
     public:
@@ -71,12 +71,31 @@ namespace NES
         /// Relative branch: adds the signed 8-bit offset `r` to PC.
         static void Branch(int8_t r);
 
-        // --- Unofficial/illegal 6502 opcodes - new, not a port of anything.
+        // See NES_CPU.cpp's own comment (the "kCycleTable's known
+        // undercounting" fix) for the full story. Real
+        // 6502 hardware takes one extra cycle whenever a conditional branch
+        // is actually taken, and one more on top of that if the branch
+        // target lands on a different page than the instruction after the
+        // branch - http://wiki.nesdev.com/w/index.php/CPU_addressing_modes
+        // ("+1 cycle if branch is taken, +1 cycle if the branch is taken and
+        // the target is on a different page"). Every BCC/BCS/.../BVS handler
+        // only ever calls Branch() when its own condition is true (see
+        // Assembly_6502.cpp: `if (cond) Math::Branch(r);`), so every call
+        // here unconditionally represents a taken branch - no separate
+        // "was it taken" check needed, unlike Parameter::pageCrossed (which
+        // several non-page-cross-sensitive instructions also trigger and
+        // must be filtered by opcode in Step()). Reset once per Step() call,
+        // before dispatch.
+        static bool branchTaken;
+        static bool branchPageCrossed;
+        static void ResetBranchFlags() { branchTaken = false; branchPageCrossed = false; }
+
+        // --- Unofficial/illegal 6502 opcodes.
         // See AssemblyList.cpp's NOTE on UnofficialNOPs()/UnofficialOpcodes()
-        // for why these exist: neither this port nor the C# original
-        // implemented any of them, which was fine until fixing the official-
-        // opcode bugs (found via nestest.nes) let the CPU actually reach code
-        // that uses them. http://wiki.nesdev.com/w/index.php/Programming_with_unofficial_opcodes
+        // for why these exist: none of them were implemented before, which
+        // was fine until fixing the official-opcode bugs (found via
+        // nestest.nes) let the CPU actually reach code that uses them.
+        // http://wiki.nesdev.com/w/index.php/Programming_with_unofficial_opcodes
 
         /// LAX: LDA value then TAX in one instruction. Flags: N,Z.
         static void LAX(uint8_t value);

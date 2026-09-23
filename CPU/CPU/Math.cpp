@@ -39,9 +39,9 @@ namespace NES
     // NOTE: SBC's raw `A - B - borrow` ranges -256..255 (unlike ADC's
     // 0..511), so Carry ("no borrow occurred") is `temp >= 0` here, not the
     // "9th bit set" check ADC uses - see Status::OC's NOTE. This part was
-    // also wrong in the C# original/this port until nestest.nes caught it
-    // (`(number & 0x100)` on a negative `temp` doesn't mean what it means
-    // for ADC's always-non-negative sums).
+    // also wrong until nestest.nes caught it (`(number & 0x100)` on a
+    // negative `temp` doesn't mean what it means for ADC's always-non-
+    // negative sums).
     uint8_t Math::SBC(int A, int B)
     {
         int temp = A - B - Status::NotCarry();
@@ -98,17 +98,16 @@ namespace NES
         return static_cast<uint8_t>(value >> 1);
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
-    // per http://wiki.nesdev.com/w/index.php/Instruction_reference#ROL, ROL
+    // FIXED (found via nestest.nes): per
+    // http://wiki.nesdev.com/w/index.php/Instruction_reference#ROL, ROL
     // shifts left through Carry: the *old* Carry (from before this
     // instruction) becomes the new bit 0, and the old bit 7 becomes the new
-    // Carry. The C# original (CPU/CPU/Math.cs ROL) read `Status::Carry()`
-    // *after* calling ASL() - but ASL() itself already overwrites Carry
-    // with the outgoing bit 7 (see getASLCarry()) as part of computing the
-    // shift, so by the time ROL read it back, the old incoming Carry it
-    // needed was already gone, replaced by the very carry-out value it was
-    // about to combine with. Fixed by capturing the incoming Carry before
-    // the shift.
+    // Carry. This previously read `Status::Carry()` *after* calling ASL() -
+    // but ASL() itself already overwrites Carry with the outgoing bit 7 (see
+    // getASLCarry()) as part of computing the shift, so by the time ROL read
+    // it back, the old incoming Carry it needed was already gone, replaced
+    // by the very carry-out value it was about to combine with. Fixed by
+    // capturing the incoming Carry before the shift.
     void Math::ROL(uint16_t a)
     {
         auto temp = NES_Memory::Memory[a];
@@ -126,16 +125,15 @@ namespace NES
         Status::NZ(NES_Register::A);
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
-    // ROR is ROL's mirror (see ROL's NOTE above) - old Carry becomes the new
-    // bit 7, old bit 0 becomes the new Carry - so it has the same
-    // read-carry-after-the-shift-already-clobbered-it timing bug as ROL
-    // *plus* a second, independent bug: the C# original shifted the
-    // (already-wrong) carry left by 8 instead of 7 before OR-ing it in, so
-    // it landed outside the byte and was discarded by the (implicit here,
-    // explicit `(byte)` there) truncation to 8 bits - ROR never rotated
-    // anything into bit 7 at all, it was just an LSR. Fixed by capturing
-    // the incoming Carry before the shift and placing it at bit 7 (`<< 7`).
+    // FIXED (found via nestest.nes): ROR is ROL's mirror (see ROL's NOTE
+    // above) - old Carry becomes the new bit 7, old bit 0 becomes the new
+    // Carry - so it has the same read-carry-after-the-shift-already-
+    // clobbered-it timing bug as ROL *plus* a second, independent bug: the
+    // (already-wrong) carry was shifted left by 8 instead of 7 before
+    // OR-ing it in, so it landed outside the byte and was discarded by
+    // truncation to 8 bits - ROR never rotated anything into bit 7 at all,
+    // it was just an LSR. Fixed by capturing the incoming Carry before the
+    // shift and placing it at bit 7 (`<< 7`).
     void Math::ROR(uint16_t a)
     {
         auto temp = NES_Memory::Memory[a];
@@ -171,13 +169,12 @@ namespace NES
         Status::NZ(NES_Register::A);
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
-    // per http://wiki.nesdev.com/w/index.php/Status_flags, CMP/CPX/CPY
+    // FIXED (found via nestest.nes): per
+    // http://wiki.nesdev.com/w/index.php/Status_flags, CMP/CPX/CPY
     // compute `register - value` and set Negative/Zero from that result
     // like any other subtraction, with Carry as "no borrow" (register >=
-    // value, unsigned). The C# original (CPU/CPU/Status.cs
-    // RegisterIsBigger/Equal/MemoryIsBigger) instead hardcoded Negative to
-    // false whenever register > value and true whenever register < value,
+    // value, unsigned). This previously hardcoded Negative to false
+    // whenever register > value and true whenever register < value,
     // regardless of the actual result's bit 7 - e.g. A=0x80 vs value=0x00
     // is "register is bigger" but the subtraction result (0x80) still has
     // bit 7 set, so Negative should be true, not false. Fixed by computing
@@ -192,16 +189,16 @@ namespace NES
     void Math::CPX(uint8_t value) { Compare(NES_Register::X, value); }
     void Math::CPY(uint8_t value) { Compare(NES_Register::Y, value); }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes,
-    // and very likely one of the highest-impact bugs in this whole session):
-    // per http://wiki.nesdev.com/w/index.php/Instruction_reference#BIT and
-    // this port's own header doc on Math::BIT ("Flags: N = M7, V = M6, Z"),
-    // only Zero is supposed to come from `value & A`; Negative and Overflow
-    // are supposed to be copied directly from bits 7 and 6 of the raw
-    // memory `value`, completely independent of A. The C# original
-    // (CPU/CPU/Math.cs BIT) computed all three from `value & A` instead -
-    // its own doc comment already said the right thing, the code just
-    // didn't do it. `BIT $addr` immediately followed by a branch on N or V
+    // FIXED (found via nestest.nes, and very likely one of the
+    // highest-impact bugs in this whole session): per
+    // http://wiki.nesdev.com/w/index.php/Instruction_reference#BIT and this
+    // class's own header doc on Math::BIT ("Flags: N = M7, V = M6, Z"), only
+    // Zero is supposed to come from `value & A`; Negative and Overflow are
+    // supposed to be copied directly from bits 7 and 6 of the raw memory
+    // `value`, completely independent of A. This previously computed all
+    // three from `value & A` instead - the header doc comment already said
+    // the right thing, the code just didn't do it. `BIT $addr` immediately
+    // followed by a branch on N or V
     // (BPL/BMI/BVC/BVS) is one of the most common 6502 idioms for polling a
     // single hardware status bit (e.g. PPUSTATUS's vblank/sprite-0-hit
     // flags via BIT $2002) specifically *because* it doesn't touch A - with
@@ -215,9 +212,17 @@ namespace NES
         NES_Register::P.Zero((value & NES_Register::A) == 0);
     }
 
+    bool Math::branchTaken = false;
+    bool Math::branchPageCrossed = false;
+
     void Math::Branch(int8_t r)
     {
-        NES_Register::PC = static_cast<uint16_t>(NES_Register::PC + r);
+        uint16_t oldPC = NES_Register::PC;
+        uint16_t newPC = static_cast<uint16_t>(oldPC + r);
+        NES_Register::PC = newPC;
+        branchTaken = true;
+        if ((oldPC & 0xFF00) != (newPC & 0xFF00))
+            branchPageCrossed = true;
     }
 
     // --- Unofficial/illegal 6502 opcodes - see Math.h's NOTE. Each combo

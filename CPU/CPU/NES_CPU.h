@@ -16,10 +16,11 @@
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
 #include <atomic>
+#include <cstdint>
 
 namespace NES
 {
-    /// PAL/NTSC/no-throttle CPU speed selector. Port of the C# `Mod` enum.
+    /// PAL/NTSC/no-throttle CPU speed selector.
     enum class Mod
     {
         NTSC,
@@ -27,24 +28,22 @@ namespace NES
         none
     };
 
-    /// @brief The 6502 fetch-decode-execute loop. Port of CPU/CPU/NES_CPU.cs.
+    /// @brief The 6502 fetch-decode-execute loop.
     /// http://wiki.nesdev.com/w/index.php/CPU
     class NES_CPU
     {
     public:
-        /// Instantiates the opcode table (mirrors the C# constructor creating an Assembly_6502).
+        /// Instantiates the opcode table (constructs an Assembly_6502).
         NES_CPU();
 
         static double cpuspeed;
 
         /// PAL/NTSC/no-throttle selector - see SleepTime()/Sleep()'s FIXED
-        /// notes. Moved from private to public (the C# original's
-        /// CPUSpeedForm debug tool, never ported, presumably had its own
-        /// access to this - see NES_Console::INIT(), which now sets this to
-        /// Mod::NTSC directly since that debug UI doesn't exist here).
+        /// notes. Public so NES_Console::INIT() can set this to Mod::NTSC
+        /// directly at startup.
         static Mod mod;
 
-        // NEW, no C# equivalent - user-requested speed control ("+"/"-"/"0"
+        // User-requested speed control ("+"/"-"/"0"
         // keys, see NES/main.cpp), plus the direct fix for a real
         // performance question raised live: with the real-time throttle
         // removed entirely (Mod::none), this ROM measured ~470k instr/sec
@@ -67,14 +66,14 @@ namespace NES
         static constexpr double kMinSpeedMultiplier = 0.125; // 1/8x
         static constexpr double kMaxSpeedMultiplier = 64.0;  // effectively uncapped in practice
 
-        // NEW, no C# equivalent - real, measured frames/second (distinct
+        // Real, measured frames/second (distinct
         // from `cpuspeed`, which is a pacing-loop-internal ns/cycle figure,
         // not an actual frame rate). Updated a few times a second from a
         // rolling real-time window in Run() - see its own comment. Exposed
         // for the CPU-speed debug window (NES/main.cpp).
         static std::atomic<double> measuredFPS;
 
-        // NEW, no C# equivalent - a real, monotonic count of completed
+        // A real, monotonic count of completed
         // 262-scanline NES frames (incremented in Run(), right alongside
         // the NES_Console::RenderFrame() call it's paired with - see that
         // call site's own comment). FIXED (real bug, found while
@@ -104,8 +103,42 @@ namespace NES
         // emulated frames instead, immune to UI-thread scheduling jitter.
         static std::atomic<long long> completedFrames;
 
+        // See NES_PPU_OAM::OAMDMA()'s own comment for the full story (the
+        // OAM-DMA CPU-stall fix). A real,
+        // monotonic count of CPU cycles executed so far, as of the *start*
+        // of the instruction currently dispatching - incremented once per
+        // Step() call, using the *previous* call's final cycle count (not
+        // the current one, which isn't known yet while still mid-dispatch).
+        // Exists so a register write's AfterSet hook - which runs *during*
+        // dispatch, before Step() has computed this instruction's own
+        // cycle count - can still determine real hardware's odd/even CPU
+        // cycle parity at roughly the moment the write's bus cycle
+        // happens, needed for OAM DMA's real "513 cycles if triggered on
+        // an even CPU cycle, 514 if odd" rule
+        // (http://wiki.nesdev.com/w/index.php/PPU_OAM, "DMA"). Not exact
+        // sub-instruction cycle timing (this port stays instruction-atomic
+        // by design - see the scanline-accurate redesign's own documented
+        // non-goals) - an approximation using "cycles elapsed before this
+        // instruction started" instead of the exact bus cycle the write
+        // lands on, close enough for any single-cycle STA/write instruction
+        // (4 cycles here, an even count, so the parity this approximation
+        // reports matches the real one regardless of exactly which of
+        // those 4 cycles the write happens on).
+        static std::atomic<uint64_t> totalCyclesEver;
+
+        // See NES_PPU_OAM::OAMDMA()'s own comment. A generic "this
+        // instruction's side effect needs N more cycles
+        // than kCycleTable says" accumulator, reset once per Step() call
+        // before dispatch and consumed right after - same pattern as
+        // Parameter::pageCrossed/Math::branchTaken (see NES_CPU.cpp's own
+        // "kCycleTable's known undercounting" comment), kept separate from
+        // those two because this one is triggered by a register *write*
+        // during dispatch (OAM DMA), not by an addressing-mode/branch
+        // decision made *by* the currently-dispatching opcode handler.
+        static int pendingExtraCycles;
+
         /// Runs the fetch-decode-execute loop until Interrupt::POWER goes
-        /// false. NEW behavior, no C# equivalent: also advances a real
+        /// false. Also advances a real
         /// per-scanline/per-dot PPU clock after every Step() with that
         /// instruction's own real executed cycle count
         /// (NES_PPU::AdvanceDots()), and calls NES_Console::RenderFrame()

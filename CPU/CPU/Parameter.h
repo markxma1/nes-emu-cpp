@@ -19,8 +19,7 @@
 
 namespace NES
 {
-    /// @brief Resolves 6502 addressing modes to a final memory address.
-    /// Port of CPU/CPU/Parameter.cs. See
+    /// @brief Resolves 6502 addressing modes to a final memory address. See
     /// https://en.wikibooks.org/wiki/6502_Assembly and http://nesdev.com/6502.txt
     class Parameter
     {
@@ -64,5 +63,24 @@ namespace NES
 
         /// Reads a little-endian 16-bit address from two consecutive memory bytes.
         static uint16_t MemoryValueToAdress(uint16_t a);
+
+        // See NES_CPU.cpp's own comment (the "kCycleTable's known
+        // undercounting" fix) for the full story. Real
+        // 6502 hardware takes one extra cycle when an indexed-addressing
+        // read instruction's effective address crosses a page boundary
+        // (high byte of the base differs from the high byte of base+index)
+        // - http://wiki.nesdev.com/w/index.php/CPU_addressing_modes
+        // ("...+1 cycle if page boundary is crossed" on Absolute,X/Y and
+        // (Indirect),Y). ax()/ay()/zpy1() set this whenever that happens,
+        // regardless of which instruction called them (STA/INC/ASL etc.
+        // also use these same three functions but are NOT page-cross
+        // sensitive on real hardware - always the same fixed cost either
+        // way, already correct in NES_CPU.cpp's kCycleTable) - so only
+        // NES_CPU::Step() (which knows the actual opcode) decides whether
+        // this flag matters for the instruction that just ran, via its own
+        // small "is this opcode read-only indexed" table. Reset once per
+        // Step() call, before dispatch.
+        static bool pageCrossed;
+        static void ResetPageCrossed() { pageCrossed = false; }
     };
 }

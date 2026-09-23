@@ -24,6 +24,8 @@
 #include "NES_PPU_Register.h"
 #include "NES_PPU.h"
 #include "NES_Console.h"
+#include "Math.h"
+#include "Parameter.h"
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -38,13 +40,13 @@ namespace NES
     {
         AssemblyList Assembly;
 
-        // NEW, no C# equivalent - the C# original's Sleep() (see this
-        // file's own FIXED notes on it) throttled every Step() by a flat
-        // per-*instruction* delay, silently treating every opcode as if it
-        // took exactly one CPU cycle. Real 6502 opcodes take 2-8 cycles
-        // depending on the opcode and addressing mode - undercounting every
-        // multi-cycle instruction meant this port's CPU still ran multiple
-        // times faster than authentic NTSC/PAL speed even after the
+        // Sleep() (see this file's own FIXED notes on it) previously
+        // throttled every Step() by a flat per-*instruction* delay, silently
+        // treating every opcode as if it took exactly one CPU cycle. Real
+        // 6502 opcodes take 2-8 cycles depending on the opcode and
+        // addressing mode - undercounting every multi-cycle instruction
+        // meant the CPU still ran multiple times faster than authentic
+        // NTSC/PAL speed even after the
         // microsecond/nanosecond unit fix (confirmed live: Chip 'n Dale's
         // music still played "ultra schnell" with that fix alone). This
         // table gives Step() each opcode's *base* cycle count (i.e.
@@ -91,6 +93,57 @@ namespace NES
             2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,   // 0xF0-0xFF
         };
 
+        // FIXED (real bug, documented as a known limitation since this
+        // port's original scanline-accurate PPU redesign, now actually
+        // closed - see kCycleTable's own comment above): kCycleTable is a
+        // flat, static approximation that never accounted for the two
+        // well-known dynamic extra-cycle cases real 6502 hardware has -
+        // http://wiki.nesdev.com/w/index.php/CPU_addressing_modes: "+1
+        // cycle if page boundary is crossed" on Absolute,X/Y and
+        // (Indirect),Y *read* instructions, and (separately, handled via
+        // Math::branchTaken/branchPageCrossed instead of this table) "+1
+        // cycle if branch is taken, +1 cycle if the branch is taken and
+        // the target is on a different page". Undercounting either means
+        // this port's PPU dot/scanline clock (NES_PPU::AdvanceDots(),
+        // driven directly off each Step()'s returned cycle count) can
+        // drift out of sync with real hardware by a few cycles per frame -
+        // small individually, but compounding over many frames, and
+        // capable of shifting exactly *when within a scanline* an
+        // NMI/mapper-IRQ fires relative to the CPU instruction stream,
+        // which is precisely the kind of small timing difference that can
+        // send a game's own interrupt-driven logic down a different path
+        // than real hardware (confirmed live: comparing this port's own
+        // per-frame RAM snapshot against FCEUX's for the exact same
+        // recorded input showed their first byte-level divergence at
+        // frame 13, already visible in *stack* bytes specifically -
+        // consistent with an interrupt firing after a different number of
+        // real cycles had actually elapsed). This table lists exactly the
+        // opcodes that need the *dynamic* page-cross check (the read-only
+        // instructions using Absolute,X/Y or (Indirect),Y - enumerated
+        // directly from this port's own Assembly_6502.cpp, not just the
+        // general 6502 spec, to match what's actually implemented here).
+        // The other instructions sharing those same addressing modes
+        // (STA/STX/STY - always the same fixed cost either way on real
+        // hardware; INC/DEC/ASL/LSR/ROL/ROR - always 7 cycles fixed, a
+        // read-modify-write) are deliberately excluded - their kCycleTable
+        // entries were already correct as flat values.
+        constexpr std::array<bool, 256> kPageCrossSensitiveOpcode = [] {
+            std::array<bool, 256> table{};
+            for (uint8_t op : {
+                     0xBD, 0xB9, 0xB1, // LDA abs,X / abs,Y / (zp),Y
+                     0xBE,             // LDX abs,Y
+                     0xBC,             // LDY abs,X
+                     0x7D, 0x79, 0x71, // ADC abs,X / abs,Y / (zp),Y
+                     0xFD, 0xF9, 0xF1, // SBC abs,X / abs,Y / (zp),Y
+                     0x3D, 0x39, 0x31, // AND abs,X / abs,Y / (zp),Y
+                     0x1D, 0x19, 0x11, // ORA abs,X / abs,Y / (zp),Y
+                     0x5D, 0x59, 0x51, // EOR abs,X / abs,Y / (zp),Y
+                     0xDD, 0xD9, 0xD1, // CMP abs,X / abs,Y / (zp),Y
+                 })
+                table[op] = true;
+            return table;
+        }();
+
         // TEMPORARY diagnostic aid, not a port of anything - opt-in via the
         // NES_TRACE_PC environment variable, off by default (zero cost when
         // unset). Set NES_TRACE_PC=1 to log every caught exception (was
@@ -117,8 +170,8 @@ namespace NES
             return enabled;
         }
 
-        // NEW, no C# equivalent - a permanent, reusable instruction-level
-        // debugger, opt-in via env vars (same zero-cost-when-unset pattern
+        // A permanent, reusable instruction-level debugger, opt-in via env
+        // vars (same zero-cost-when-unset pattern
         // as every other NES_TRACE_* hook here). Built specifically because
         // the printf-style tracing this project had been using (TracePC()
         // and its one-off temporary extensions, added and removed
@@ -214,12 +267,14 @@ namespace NES
     std::atomic<double> NES_CPU::speedMultiplier{1.0};
     std::atomic<double> NES_CPU::measuredFPS{0.0};
     std::atomic<long long> NES_CPU::completedFrames{0};
+    std::atomic<uint64_t> NES_CPU::totalCyclesEver{0};
+    int NES_CPU::pendingExtraCycles = 0;
 
     NES_CPU::NES_CPU()
     {
-        // C# built a throwaway `new Assembly_6502()` here; Assembly_6502 in this
-        // port only has static members, so there is nothing to construct - the
-        // opcode table itself lives in the file-local `Assembly` instance above.
+        // Assembly_6502 only has static members, so there is nothing to
+        // construct here - the opcode table itself lives in the file-local
+        // `Assembly` instance above.
     }
 
     int NES_CPU::Step()
@@ -271,6 +326,13 @@ namespace NES
 
         DebugBreakpoint(pcBefore, opcode, instructionCount);
 
+        // See kPageCrossSensitiveOpcode's own comment above for the full
+        // story - reset all dynamic-extra-cycle sources right before this
+        // instruction dispatches, so only what *it* does gets attributed.
+        Parameter::ResetPageCrossed();
+        Math::ResetBranchFlags();
+        pendingExtraCycles = 0;
+
         // TEMPORARY diagnostic aid - opt-in via NES_TRACE_HUDCLEAR_FOLLOWUP,
         // off by default. See NES_PPU_Register::hudClearFollowupTraceRemaining's
         // own comment - logs the raw (PC, opcode) of every instruction while
@@ -290,7 +352,7 @@ namespace NES
         }
         catch (const std::exception& e)
         {
-            // Matches the C# catch-all around one instruction step: an
+            // A catch-all around one instruction step: an
             // unmapped opcode (NoAssemby - see AssemblyList.cpp's
             // UnofficialNOPs()/UnofficialOpcodes() for how many of these are
             // now actually implemented) is swallowed and execution just
@@ -314,8 +376,22 @@ namespace NES
                 }
             }
         }
-        Interrupt::Check(kCycleTable[opcode]);
+        int cycles = kCycleTable[opcode];
+        if (Math::branchTaken)
+        {
+            cycles += 1;
+            if (Math::branchPageCrossed)
+                cycles += 1;
+        }
+        else if (kPageCrossSensitiveOpcode[opcode] && Parameter::pageCrossed)
+        {
+            cycles += 1;
+        }
+        cycles += pendingExtraCycles; // OAM DMA stall (see NES_PPU_OAM::OAMDMA()) or similar
+
+        Interrupt::Check(cycles);
         ++instructionCount;
+        totalCyclesEver.fetch_add(static_cast<uint64_t>(cycles), std::memory_order_relaxed);
 
 
 
@@ -406,10 +482,10 @@ namespace NES
             }
         }
 
-        return kCycleTable[opcode];
+        return cycles;
     }
 
-    // NEW, no C# equivalent - one real NTSC/PAL frame's worth of CPU
+    // One real NTSC/PAL frame's worth of CPU
     // cycles. http://wiki.nesdev.com/w/index.php/Cycle_reference_chart:
     // NTSC is 341 PPU dots/scanline * 262 scanlines/frame = 89342 PPU
     // dots/frame, at a fixed 3 PPU-dots-per-CPU-cycle ratio -> 89342/3 =
@@ -434,7 +510,7 @@ namespace NES
     // the same fact AdvanceDots() itself hardcodes, just not re-derived
     // from this function directly, to avoid the PPU depending on
     // NES_CPU::mod for a value it doesn't otherwise need (PAL isn't
-    // supported end-to-end anywhere else in this port either - see
+    // supported end-to-end anywhere else here either - see
     // NES_Console::INIT() hardcoding Mod::NTSC).
     double NES_CPU::FrameCycles()
     {
@@ -446,7 +522,7 @@ namespace NES
         }
     }
 
-    // FIXED (new design, not a C# port - see NES_PPU::AdvanceDots()'s own
+    // FIXED (new design - see NES_PPU::AdvanceDots()'s own
     // comment for the full story on the bug class this closes, found live
     // via three separate real games this session: Chip 'n Dale's MMC1
     // shift-register corruption, Tiny Toon Adventures' MMC3 status-bar
