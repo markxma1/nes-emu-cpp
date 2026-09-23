@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_Memory.h"
+#include <cstdlib>
 
 namespace NES
 {
@@ -180,7 +181,7 @@ namespace NES
                 Memory.push_back(Memory[i - 0x1000]);
             else if (i >= 0x1800 && i <= 0x1FFF)
                 Memory.push_back(Memory[i - 0x1800]);
-            else if ((i & 4) == 0)
+            else if ((i & 4) == 0 || (i < 0x800 && std::getenv("NES_RAM_ZERO")))
                 Memory.push_back(std::make_shared<AddressSetup>(static_cast<uint8_t>(0x00), i));
             else
                 Memory.push_back(std::make_shared<AddressSetup>(static_cast<uint8_t>(0xFF), i));

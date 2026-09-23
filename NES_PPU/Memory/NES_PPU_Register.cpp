@@ -155,9 +155,11 @@ namespace NES
             if (NES_PPU::ScrollXoY)
             {
                 ppuAddrHighLatch = value;
+                NES_PPU::LoopyWriteAddress(value, true);
             }
             else
             {
+                NES_PPU::LoopyWriteAddress(value, false);
                 PPUPCADDR = static_cast<uint16_t>(((static_cast<uint16_t>(ppuAddrHighLatch) << 8) | value) & 0x3FFF);
                 // FIXED (real bug, found via Tiny Toon Adventures' actual
                 // scanline-IRQ status-bar-split handler - not the vblank-time
@@ -271,7 +273,8 @@ namespace NES
         // handler does), so xScroll/yScroll - already computed against the
         // *previous* value of those bits - need re-deriving here too, not
         // just from a fresh $2005 write.
-        PPUCTRL.adress->AfterSet([](uint8_t) {
+        PPUCTRL.adress->AfterSet([](uint8_t value) {
+            NES_PPU::LoopyWriteControl(value);
             PPUCTRL.V(PPUCTRL.V());
             NES_PPU::RecomputeXScroll();
             NES_PPU::RecomputeYScroll();
@@ -325,7 +328,7 @@ namespace NES
     {
         PPUCTRL.adress->Value(0);
         PPUMASK.adress->Value(0);
-        PPUSTATUS.adress->Value(0xA0);
+        PPUSTATUS.adress->Value(0x00);
         OAMADDR->Value(0);
         PPUSCROLLRESSET();
         // Explicitly resynchronized to a known toggle state first (rather

@@ -17,6 +17,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <functional>
 
 namespace NES
 {
@@ -102,6 +103,11 @@ namespace NES
         // lets NES/main.cpp key playback/quit-frame numbering off actual
         // emulated frames instead, immune to UI-thread scheduling jitter.
         static std::atomic<long long> completedFrames;
+
+        // Optional callback run on the CPU thread right after each completed
+        // frame (argument: the new completedFrames value). Used to apply
+        // recorded input at an exact emulated frame.
+        static std::function<void(long long)> frameHook;
 
         // See NES_PPU_OAM::OAMDMA()'s own comment for the full story (the
         // OAM-DMA CPU-stall fix). A real,

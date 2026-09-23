@@ -15,6 +15,8 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "Interrupt.h"
+#include "NES_PPU.h"
+#include "NES_CPU.h"
 #include "NES_Register.h"
 #include "NES_Memory.h"
 #include "AddressSetup.h"
@@ -126,7 +128,7 @@ namespace NES
                 NES_Register::P.Interrupt(true);
                 IRQ(false);
                 if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
-                    std::cerr << "[irqServiced] jumped to 0x" << std::hex << NES_Register::PC << std::dec
+                    std::cerr << "[irqServiced] scanline=" << NES_PPU::CurrentScanline() << " jumped to 0x" << std::hex << NES_Register::PC << std::dec
                               << " $39=0x" << std::hex << static_cast<int>(NES_Memory::Memory[0x39]->value())
                               << " $3b=0x" << static_cast<int>(NES_Memory::Memory[0x3b]->value())
                               << " $3c=0x" << static_cast<int>(NES_Memory::Memory[0x3c]->value())
@@ -195,7 +197,7 @@ namespace NES
 
         if (NMI())
         {
-            if (nmiInProgress || nmiSuppressed)
+            if (nmiSuppressed)
             {
                 if (std::getenv("NES_TRACE_NMI_BLOCK"))
                     std::cerr << "[NMI blocked] nmiInProgress=" << nmiInProgress
@@ -203,11 +205,15 @@ namespace NES
                 return;
             }
 
-            NES_Register::P.Interrupt(true);
             nmiSevenClock -= cycles;
             if (nmiSevenClock <= 0)
             {
+                if (std::getenv("NES_TRACE_NMI_CYCLES"))
+                    std::cerr << "NMI cycles=" << NES_CPU::totalCyclesEver.load() << std::endl;
+                // The pushed P must be the pre-interrupt status; I is set
+                // only afterwards, so RTI restores the old I flag.
                 ReplacePC(0xfffa, false, true);
+                NES_Register::P.Interrupt(true);
                 nmiInProgress = true;
                 nmiEntryStackPointer = NES_Register::S;
                 NMI(false);

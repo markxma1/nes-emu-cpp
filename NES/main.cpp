@@ -1009,6 +1009,26 @@ int main(int argc, char** argv)
     // reached by the time this AfterSet callback runs (typically already
     // past the STA that caused it) - close enough to identify the
     // responsible code region, not necessarily the STA's own exact address.
+    if (const char* traceReadEnv = std::getenv("NES_TRACE_READ"))
+    {
+        std::string spec(traceReadEnv);
+        size_t pos = 0;
+        while (pos < spec.size())
+        {
+            size_t comma = spec.find(',', pos);
+            std::string tok = spec.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+            unsigned addr = std::stoul(tok, nullptr, 16);
+            NES::NES_Memory::Memory[addr]->AfterGet([addr]() {
+                std::cerr << "[READ] $" << std::hex << addr << " = 0x" << static_cast<int>(NES::NES_Memory::Memory[addr]->value())
+                          << " (near PC=0x" << NES::NES_Register::PC << ")" << std::dec
+                          << " scanline=" << NES::NES_PPU::CurrentScanline()
+                          << " frame=" << NES::NES_CPU::completedFrames.load(std::memory_order_relaxed) << std::endl;
+            });
+            if (comma == std::string::npos) break;
+            pos = comma + 1;
+        }
+    }
+
     if (const char* traceWriteEnv = std::getenv("NES_TRACE_WRITE"))
     {
         std::string spec(traceWriteEnv);
@@ -1266,15 +1286,28 @@ int main(int argc, char** argv)
     if (std::getenv("NES_AUTO_OPEN_OAM"))
         oamWindow.toggle();
 
-    // Same spirit as NES_AUTO_LOAD_SAVE above - opt-in via NES_PLAYBACK_INPUT
-    // (a recording file path, see StartRecording()'s own comment on the
-    // format). Loaded once, here; applied every UI-thread loop iteration
-    // below via SetButton() calls in the same unconditional-of-focus block
-    // the other NES_AUTO_* overrides already use.
+    // Opt-in via NES_PLAYBACK_INPUT (a recording file path, see
+    // StartRecording()'s own comment on the format). Loaded once, here, and
+    // applied from the CPU thread the instant frame N completes (see
+    // NES_CPU::frameHook), so the game sees each button change at exactly
+    // the same emulated frame on every replay, independent of UI-thread
+    // timing. While a playback file is active the UI loop does not drive
+    // Player1 at all.
     std::map<long, std::vector<std::pair<std::string, bool>>> playbackEvents;
-    std::set<std::string> playbackHeld;
+    bool playbackDriven = false;
     if (const char* playbackEnv = std::getenv("NES_PLAYBACK_INPUT"))
+    {
         playbackEvents = LoadPlaybackFile(playbackEnv);
+        playbackDriven = true;
+        NES::NES_CPU::frameHook = [&playbackEvents](long long frame)
+        {
+            auto it = playbackEvents.find(static_cast<long>(frame));
+            if (it == playbackEvents.end())
+                return;
+            for (const auto& [button, down] : it->second)
+                SetButton(NES::NES_GamePad::Player1, button, down);
+        };
+    }
 
     // FIXED (real bug, found while investigating a user-reported Bram
     // Stoker's Dracula "flickers between frames, sometimes normal
@@ -1306,25 +1339,6 @@ int main(int argc, char** argv)
     while (running)
     {
         uiFrame = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
-        // Drain every playback event between the last real frame this loop
-        // observed and the current one (inclusive), not just a single
-        // playbackEvents.find(uiFrame) - completedFrames can legitimately
-        // advance by more than 1 between two UI-thread polls (e.g. this
-        // poll took longer than one real frame's worth of CPU-thread
-        // time), and a plain point-lookup would silently drop any event
-        // whose exact frame number got stepped over.
-        for (long f = lastAppliedPlaybackFrame + 1; f <= uiFrame; f++)
-        {
-            auto it = playbackEvents.find(f);
-            if (it != playbackEvents.end())
-                for (const auto& [button, down] : it->second)
-                {
-                    if (down)
-                        playbackHeld.insert(button);
-                    else
-                        playbackHeld.erase(button);
-                }
-        }
         lastAppliedPlaybackFrame = uiFrame;
         if (std::getenv("NES_TRACE_PC") && uiFrame % 30 == 0)
             std::cout << "  frame " << uiFrame << " PC=0x" << std::hex << NES::NES_Register::PC << std::dec
@@ -1738,7 +1752,7 @@ int main(int argc, char** argv)
         if (sawEsc)
             running = false;
 
-        if (!remapState.Active() && !romSelector.Active())
+        if (!playbackDriven && !remapState.Active() && !romSelector.Active())
         {
             if (focused)
             {
@@ -1790,8 +1804,6 @@ int main(int argc, char** argv)
                 SetButton(NES::NES_GamePad::Player1, "A", true);
             if (autoSelectActive)
                 SetButton(NES::NES_GamePad::Player1, "SELECT", true);
-            for (const std::string& button : playbackHeld)
-                SetButton(NES::NES_GamePad::Player1, button, true);
         }
         RecordInputTick(uiFrame);
         TraceInputSourcesIfRequested(uiFrame);

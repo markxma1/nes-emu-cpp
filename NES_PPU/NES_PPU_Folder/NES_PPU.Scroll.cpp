@@ -28,6 +28,104 @@ namespace NES
     int NES_PPU::yScroll = 0;
     int NES_PPU::rawXScroll = 0;
     int NES_PPU::rawYScroll = 0;
+    uint16_t NES_PPU::loopyT = 0;
+    uint16_t NES_PPU::splitV = 0;
+    uint8_t NES_PPU::fineX = 0;
+    bool NES_PPU::splitActive = false;
+    bool NES_PPU::splitPrevRendered = false;
+    int NES_PPU::splitStartLine = 0;
+
+    // One vertical step of v, as the PPU does at dot 256 of every scanline
+    // (fine Y, then coarse Y with the 29 -> 0 nametable flip).
+    static uint16_t IncrementVerticalAddress(uint16_t v)
+    {
+        int fy = (v >> 12) & 7;
+        if (fy < 7)
+            return static_cast<uint16_t>(v + 0x1000);
+        v = static_cast<uint16_t>(v & ~0x7000);
+        int cy = (v >> 5) & 31;
+        if (cy == 29)
+        {
+            cy = 0;
+            v ^= 0x0800;
+        }
+        else
+            cy = (cy + 1) & 31;
+        return static_cast<uint16_t>((v & ~0x03E0) | (cy << 5));
+    }
+
+    void NES_PPU::LoopyWriteControl(uint8_t value)
+    {
+        loopyT = static_cast<uint16_t>((loopyT & ~0x0C00) | ((value & 0x03) << 10));
+    }
+
+    void NES_PPU::LoopyWriteScroll(uint8_t value, bool firstWrite)
+    {
+        if (firstWrite)
+        {
+            loopyT = static_cast<uint16_t>((loopyT & ~0x001F) | (value >> 3));
+            fineX = value & 0x07;
+        }
+        else
+        {
+            loopyT = static_cast<uint16_t>((loopyT & ~0x73E0) | ((value & 0x07) << 12) | ((value >> 3) << 5));
+        }
+    }
+
+    void NES_PPU::LoopyWriteAddress(uint8_t value, bool firstWrite)
+    {
+        if (firstWrite)
+        {
+            loopyT = static_cast<uint16_t>((loopyT & 0x00FF) | ((value & 0x3F) << 8));
+            return;
+        }
+        loopyT = static_cast<uint16_t>((loopyT & 0xFF00) | value);
+        // Second $2006 write copies t into v. On a visible scanline with
+        // rendering on, that re-points the rest of the frame's rows.
+        bool rendering = NES_PPU_Register::PPUMASK.b() || NES_PPU_Register::PPUMASK.s();
+        if (std::getenv("NES_TRACE_SPLIT"))
+            std::cerr << "[$2006 v=t] t=0x" << std::hex << loopyT << std::dec << " scanline=" << currentScanline
+                      << " rendering=" << rendering << std::endl;
+        // The load always reaches v, even while rendering is switched off
+        // (Dracula's status bar does exactly that); rendering then continues
+        // from v when it is switched back on.
+        if (currentScanline >= 0 && currentScanline < 240)
+        {
+            splitActive = true;
+            splitV = loopyT;
+            splitStartLine = currentScanline + 1;
+            splitPrevRendered = false;
+            // A load before dot 256 is still followed by that scanline's own
+            // vertical increment; after dot 256 it has already happened.
+            if (rendering && currentDot < 256)
+                splitV = IncrementVerticalAddress(splitV);
+        }
+    }
+
+    // Called at the start of each visible scanline, before it is drawn.
+    // While a split is active, derive this row's scroll from splitV.
+    void NES_PPU::ApplySplitScroll(int scanline)
+    {
+        if (!splitActive || scanline < splitStartLine)
+            return;
+        bool rendering = NES_PPU_Register::PPUMASK.b() || NES_PPU_Register::PPUMASK.s();
+        // v only advances (and only re-copies t's horizontal bits) on
+        // scanlines the PPU actually rendered.
+        if (scanline > splitStartLine && splitPrevRendered)
+            splitV = IncrementVerticalAddress(splitV);
+        splitPrevRendered = rendering;
+        if (rendering)
+            splitV = static_cast<uint16_t>((splitV & ~0x041F) | (loopyT & 0x041F));
+
+        int coarseX = splitV & 31;
+        int coarseY = (splitV >> 5) & 31;
+        int fineY = (splitV >> 12) & 7;
+        int ntX = (splitV >> 10) & 1;
+        int ntY = (splitV >> 11) & 1;
+        xScroll = ntX * 256 + coarseX * 8 + fineX;
+        int logicalY = ntY * 240 + (coarseY % 30) * 8 + fineY;
+        yScroll = logicalY - scanline;
+    }
 
     /// PPUSCROLL is write-only on real hardware; a CPU read of $2005 isn't
     /// meaningful, so this always returns 0 (deliberately).
@@ -38,6 +136,7 @@ namespace NES
 
     void NES_PPU::Scroll(uint8_t value)
     {
+        LoopyWriteScroll(value, ScrollXoY);
         if (ScrollXoY)
         {
             XScroll(value);
@@ -135,6 +234,8 @@ namespace NES
     void NES_PPU::RecomputeXScroll()
     {
         int value = AddxScroll(rawXScroll);
+        if (splitActive)
+            return;
         xScroll = value;
         if (!Draw())
             xScrollTemp = value;
@@ -162,6 +263,8 @@ namespace NES
     void NES_PPU::RecomputeYScroll()
     {
         int value = AddyScroll(rawYScroll);
+        if (splitActive)
+            return;
         yScroll = value;
         if (!Draw())
             yScrollTemp = value;

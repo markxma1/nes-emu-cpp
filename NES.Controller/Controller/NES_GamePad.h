@@ -104,12 +104,13 @@ namespace NES
         /// Button order matches the real controller's Up/Down/Left/Right
         /// read order (see the FIXED note above) - `getButton()` reads
         /// `Player1.Button[P1BID]` by this same positional order.
-        /// SELECT's odd `true` initial value is kept as-is.
+        /// All buttons start released (SELECT used to start pressed, which
+        /// made games see Select held until the first key event arrived).
         struct Controller
         {
             std::vector<std::pair<std::string, bool>> Button;
             Controller()
-                : Button{ {"A", false}, {"B", false}, {"SELECT", true}, {"START", false},
+                : Button{ {"A", false}, {"B", false}, {"SELECT", false}, {"START", false},
                           {"U", false}, {"D", false}, {"L", false}, {"R", false} }
             {
             }

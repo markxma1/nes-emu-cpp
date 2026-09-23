@@ -15,6 +15,8 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_GamePad.h"
+#include <iostream>
+#include <cstdlib>
 #include "NES_Memory.h"
 
 namespace NES
@@ -51,7 +53,16 @@ namespace NES
     void NES_GamePad::InitInput4016()
     {
         input4016.address = NES_Memory::Memory[0x4016];
-        input4016.address->AfterSet([](uint8_t v) { strobeHigh = (v & 0x01) != 0; });
+        input4016.address->AfterSet([](uint8_t v)
+        {
+            strobeHigh = (v & 0x01) != 0;
+            // While the strobe bit is high the real shift register is
+            // continuously reloaded from the buttons, so the next read after
+            // it falls always starts at the first button (A) -
+            // http://wiki.nesdev.com/w/index.php/Controller_reading
+            if (strobeHigh)
+                P1BID = 0;
+        });
     }
 
     void NES_GamePad::InitOutput4016()
@@ -59,6 +70,10 @@ namespace NES
         output4016.address = NES_Memory::Memory[0x4016];
         output4016.address->BeforGet([]() { getButton(); });
         output4016.address->AfterGet([]() { output4016.address->value(0); });
+        // Player 2 has no buttons wired: reads $4017 as open bus only.
+        auto p2 = NES_Memory::Memory[0x4017];
+        p2->value(0x40);
+        p2->AfterGet([p2]() { p2->value(0x40); });
     }
 
     // FIXED (found while
@@ -119,7 +134,13 @@ namespace NES
     {
         if (strobeHigh)
             P1BID = 0;
+        if (std::getenv("NES_TRACE_PAD"))
+            std::cerr << "[pad] idx=" << P1BID << " " << Player1.Button[static_cast<size_t>(P1BID)].first << "=" << Player1.Button[static_cast<size_t>(P1BID)].second << " strobe=" << strobeHigh << std::endl;
         output4016.SerialControllerData(Player1.Button[static_cast<size_t>(P1BID)].second);
+        // Bits 7-5 of a $4016/$4017 read are open bus: the CPU data bus still
+        // holds the high byte of the address just read ($40), so bit 6 reads
+        // back as 1 - http://wiki.nesdev.com/w/index.php/Open_bus_behavior
+        output4016.OpenBus(0x40);
         if (!strobeHigh && ++P1BID > 7)
             P1BID = 0;
     }

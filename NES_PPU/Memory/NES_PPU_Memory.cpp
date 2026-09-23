@@ -41,19 +41,15 @@ namespace NES
         UpdateMemory();
     }
 
-    // LEARNING NOTE: it's natural to read this loop as "background palette
-    // gets $3F00-$3F0F, sprite palette gets its own separate $3F10-$3F1F" -
-    // and structurally, that is exactly what this code does. But per
-    // http://wiki.nesdev.com/w/index.php/PPU_palettes ("Addresses
-    // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C"), real
-    // hardware does *not* give those four sprite-palette slots independent
-    // storage - writing $3F10 is electrically the same as writing $3F00.
-    // This function gives
-    // SpritePalette[0]/[4]/[8]/[0xC] their own AddressSetup cells instead of
-    // aliasing them back onto BGPalette's - a plausible-looking
-    // implementation of "sprite palette" that misses this one real-hardware
-    // aliasing quirk. (Whether any real game's visuals depend on this
-    // specific aliasing hasn't been checked here.)
+    // Background palette gets $3F00-$3F0F, sprite palette $3F10-$3F1F - but
+    // per http://wiki.nesdev.com/w/index.php/PPU_palettes ("Addresses
+    // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C"), those
+    // four sprite slots have no storage of their own: writing $3F10 is
+    // electrically the same as writing $3F00 (the universal backdrop colour).
+    // MemoryMirror() aliases them, so SpritePalette[0]/[4]/[8]/[0xC] below are
+    // the very same cells as BGPalette[0]/[4]/[8]/[0xC]. FIXED: they used to be
+    // separate cells, so a game writing its backdrop colour through $3F10
+    // (Tiny Toon Adventures does) left the backdrop black.
     void NES_PPU_Memory::InitPaletteRAMIndexes()
     {
         for (int i = 0x3F00; i < 0x3F10; i++)
@@ -212,6 +208,8 @@ namespace NES
     {
         if (i >= 0x3000 && i < 0x3F00)
             Memory[i] = Memory[i - 0x1000];
+        else if (i == 0x3F10 || i == 0x3F14 || i == 0x3F18 || i == 0x3F1C)
+            Memory[i] = Memory[i - 0x10];
         else if (i >= 0x3F20 && i < 0x3F20 + 0xE0)
             Memory[i] = Memory[i - 0x20];
     }

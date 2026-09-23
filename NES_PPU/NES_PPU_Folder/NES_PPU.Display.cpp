@@ -155,6 +155,8 @@ namespace NES
         // instead of once here after the whole frame (all 240 scanlines)
         // was already built - by which point it's too late for a game's
         // own mid-frame `BIT $2002` poll to ever observe it in time.
+        for (int y = 0; y < 240; y++)
+            frame.FillRectangle(backdropByScanline[static_cast<size_t>(y)], 0, y, 256, y + 1);
         frame.DrawImage(spriteBehindBuffer, 0, 0);
         frame.DrawImage(backgroundBuffer, 0, 0);
         frame.DrawImage(spriteFrontBuffer, 0, 0);
@@ -187,8 +189,11 @@ namespace NES
         return Display();
     }
 
-    int NES_PPU::currentDot = 0;
+    // NES_PPU_START_DELAY_DOTS (test aid): start the PPU this many dots behind
+    // the CPU, to line up with a reference emulator's own power-on phase.
+    int NES_PPU::currentDot = std::getenv("NES_PPU_START_DELAY_DOTS") ? -std::atoi(std::getenv("NES_PPU_START_DELAY_DOTS")) : 0;
     int NES_PPU::currentScanline = 0;
+    std::array<NES_PPU::Color, 240> NES_PPU::backdropByScanline;
     std::function<void()> NES_PPU::scanlineCallback;
     bool NES_PPU::scanlineIrqClockFired = false;
     NES_PPU::Picture NES_PPU::backgroundBuffer(256, 240);
@@ -318,6 +323,7 @@ namespace NES
             // fire from this dot-0 boundary, matching real hardware: the
             // mapper's bank/CHR changes from the earlier IRQ are already
             // in effect by the time this scanline's own row is decoded.
+            ApplySplitScroll(scanline);
             RenderBackgroundScanline(scanline);
             RenderSpriteScanline(scanline);
         }
@@ -327,12 +333,24 @@ namespace NES
             // by default.
             if (std::getenv("NES_TRACE_VBLANK241"))
                 std::cerr << "[VBLANK241] PPUCTRL.V=" << NES_PPU_Register::PPUCTRL.V() << std::endl;
+            static bool firstVblankSkipped = false;
+            if (!firstVblankSkipped && std::getenv("NES_SKIP_FIRST_VBLANK"))
+            {
+                firstVblankSkipped = true;
+                return;
+            }
             NES_PPU_Register::PPUSTATUS.V(true);
             if (NES_PPU_Register::PPUCTRL.V())
                 Interrupt::NMI(true);
         }
         else if (scanline == 261)
         {
+            if (splitActive)
+            {
+                splitActive = false;
+                RecomputeXScroll();
+                RecomputeYScroll();
+            }
             // "Cleared after reading $2002 and at dot 1 of the pre-render
             // line" (vblank, V) / "cleared ... at dot 1 of the pre-render
             // line" (sprite 0 hit, S) -
@@ -429,6 +447,8 @@ namespace NES
         // one-frame corruption showed $2001 being written 0x00 (both
         // background and sprites disabled) right at the scanlines
         // immediately preceding it, via `NES_TRACE_WRITE=2001`.
+        backdropByScanline[static_cast<size_t>(screenY)] = NES_PPU_Palette::UniversalBackgroundColor();
+
         if (!NES_PPU_Register::PPUMASK.b())
         {
             backgroundBuffer.FillRectangle(NES_PPU_Palette::UniversalBackgroundColor(), 0, screenY, 256, screenY + 1);

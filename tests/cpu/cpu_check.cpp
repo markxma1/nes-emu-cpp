@@ -27,6 +27,7 @@
 #include "Interrupt.h"
 #include "NES_CPU.h"
 #include "NES_Console.h"
+#include "NES_GamePad.h"
 #include "NES_Memory.h"
 #include "NES_PPU.h"
 #include "NES_PPU_Memory.h"
@@ -58,29 +59,13 @@ namespace
         }
     }
 
-    /// Regression test for the NMI-reentrancy race fixed in
-    /// NES.Memory/Interrupt.cpp (see isNMI()'s own FIXED note for the full
-    /// story) - found live via Chip 'n Dale's cooperative task scheduler,
-    /// whose short, unprotected critical sections got hit by far more NMIs
-    /// than real hardware's precise ~60Hz timing would ever allow, since
-    /// this port's NMI is wall-clock/UI-frame driven rather than
-    /// cycle-accurate. Verifies the actual guarantee that fix makes: a
-    /// second NMI request arriving *before* the first handler has returned
-    /// (via RTI) must not re-enter the handler, but a later, *legitimate*
-    /// NMI - requested only after the previous one actually finished - must
-    /// still fire normally. Without the fix, both of these NMI(true) calls
-    /// would jump straight to the handler every time isNMI() next runs,
-    /// abandoning whatever the handler was doing and restarting it from
-    /// scratch - exactly the "handler never reaches its own RTI" pattern
-    /// this test's step budget would time out on if the fix regressed.
-    void TestNmiReentrancyGuard()
+    /// The NMI line is edge-triggered and, unlike IRQ, cannot be masked by the
+    /// I flag - http://wiki.nesdev.com/w/index.php/CPU_interrupts. A second
+    /// vblank NMI arriving while the first handler is still running therefore
+    /// interrupts that handler right away; nothing holds it back until RTI.
+    /// (An earlier version blocked it, which delayed every later interrupt.)
+    void TestNmiIsNotBlockedByRunningHandler()
     {
-        // Minimal synthetic program, not a real ROM: main loop is just NOPs
-        // at $8000; the NMI handler at $9000 is a *long* run of NOPs (0x40
-        // of them - deliberately far longer than SevenClock's ~9-step
-        // interrupt-response delay, see below, so a buggy re-entry has
-        // clear room to happen well before the handler would naturally
-        // reach its own RTI) followed by RTI ($40) at $9040.
         constexpr uint16_t kHandlerStart = 0x9000;
         constexpr uint16_t kHandlerRti = 0x9040;
         for (uint16_t addr = 0x8000; addr < 0x8010; ++addr)
@@ -89,89 +74,197 @@ namespace
             NES_Memory::Memory[addr]->value(0xEA); // NOP
         NES_Memory::Memory[kHandlerRti]->value(0x40); // RTI
 
-        NES_Memory::Memory[0xFFFA]->value(static_cast<uint8_t>(kHandlerStart)); // NMI vector low
-        NES_Memory::Memory[0xFFFB]->value(static_cast<uint8_t>(kHandlerStart >> 8)); // NMI vector high
+        NES_Memory::Memory[0xFFFA]->value(static_cast<uint8_t>(kHandlerStart));
+        NES_Memory::Memory[0xFFFB]->value(static_cast<uint8_t>(kHandlerStart >> 8));
 
         NES_Register::PC = 0x8000;
         NES_Register::S = 0xFD;
         NES_Register::P.P = 0x24;
         Interrupt::NMI(false);
-
-        // Run the main loop a few instructions so PC is somewhere inside
-        // $8000-$800F (position doesn't matter, just needs to be "in the
-        // main loop, not the handler") before requesting an NMI.
         for (int i = 0; i < 3; ++i)
             NES_CPU::Step();
 
         Interrupt::NMI(true);
-        // isNMI() waits ~7 Check() calls (SevenClock) before actually
-        // jumping - matches real hardware's interrupt response latency,
-        // see Interrupt.cpp - so step until entry is actually observed
-        // rather than guessing a fixed count.
         bool entered = false;
         for (int i = 0; i < 20 && !entered; ++i)
         {
             NES_CPU::Step();
             entered = NES_Register::PC == kHandlerStart;
         }
-        Check(entered, "NMI reentrancy: a requested NMI should have entered the handler ($9000)");
+        Check(entered, "NMI: a requested NMI should have entered the handler ($9000)");
 
-        // Still early in the (long) handler, nowhere near its own RTI -
-        // simulate the UI thread requesting *another* NMI mid-handler, the
-        // exact race this fix closes. The real invariant: this second
-        // request must not cause the CPU to jump back to $9000 again
-        // before the *current* dispatch first reaches its own RTI at
-        // $9040. A broken/missing guard abandons the in-progress handler
-        // and jumps straight back to $9000 as soon as SevenClock's ~9-step
-        // delay elapses next - which, with the handler being 0x40 NOPs
-        // long, happens *decades* before RTI, giving this test a wide,
-        // reliable margin instead of a coin-flip on exact step counts.
+        // Let the handler run a few NOPs, then raise a second NMI.
+        for (int i = 0; i < 5; ++i)
+            NES_CPU::Step();
         Interrupt::NMI(true);
-        bool sawRti = false;
-        bool reenteredBeforeRti = false;
-        for (int i = 0; i < static_cast<int>(kHandlerRti - kHandlerStart) + 20 && !sawRti; ++i)
+        bool reentered = false;
+        for (int i = 0; i < 20 && !reentered; ++i)
         {
             NES_CPU::Step();
-            if (NES_Register::PC == kHandlerRti)
-                sawRti = true;
-            else if (NES_Register::PC == kHandlerStart)
-                reenteredBeforeRti = true;
+            reentered = NES_Register::PC == kHandlerStart;
         }
-        Check(sawRti, "NMI reentrancy: the in-progress handler should reach its own RTI within the step budget");
-        Check(!reenteredBeforeRti,
-              "NMI reentrancy: a second NMI requested mid-handler must not re-enter ($9000) before the "
-              "in-progress handler reaches its own RTI ($9040)");
-
-        // The loop above stops the instant PC reaches kHandlerRti - RTI
-        // itself hasn't executed yet, and the second NMI() request from
-        // earlier is *still pending* (the blocked path above deliberately
-        // never calls NMI(false) - see isNMI()'s own comment: a pulse that
-        // arrives before the previous handler returns isn't lost, only
-        // delayed). That's real, correct, already-proven-above edge-
-        // triggered behavior, not something this next check cares about -
-        // left alone, it would auto-redeliver right after RTI runs (now
-        // promptly, within a handful of instructions, thanks to this same
-        // session's cycle-accurate dispatch fix - see Interrupt.cpp's own
-        // FIXED note) and consume the "3 steps" budget below with a second,
-        // unrelated dispatch, blocking the *deliberately fresh* third
-        // request this check exists to test. Explicitly consuming it here
-        // (same test-isolation affordance TestIrqDispatchDoesNotStallIndefinitely
-        // already uses) isolates that already-covered scenario from this one.
+        Check(reentered,
+              "NMI: a second NMI raised while the handler is still running must interrupt it "
+              "immediately (NMI is not blocked by the running handler or by the I flag)");
         Interrupt::NMI(false);
+    }
 
-        // A *legitimate* later NMI - requested only now, after the previous
-        // one fully returned - must still fire normally (the guard isn't
-        // permanently stuck closed).
-        for (int i = 0; i < 3; ++i)
-            NES_CPU::Step();
+    /// A 6502 interrupt pushes the status register as it was *before* the
+    /// interrupt and only then sets the I flag, so RTI brings the old I flag
+    /// back. Setting I first left it set after every NMI, which made the
+    /// MMC3 scanline IRQ wait for the next vblank (Tiny Toon Adventures'
+    /// status bar never appeared).
+    void TestNmiRestoresInterruptFlagOnRti()
+    {
+        constexpr uint16_t kHandlerStart = 0x9000;
+        NES_Memory::Memory[0x8000]->value(0xEA); // NOP
+        for (uint16_t addr = 0x8001; addr < 0x8010; ++addr)
+            NES_Memory::Memory[addr]->value(0xEA);
+        NES_Memory::Memory[kHandlerStart]->value(0xEA);
+        NES_Memory::Memory[kHandlerStart + 1]->value(0x40); // RTI
+        NES_Memory::Memory[0xFFFA]->value(static_cast<uint8_t>(kHandlerStart));
+        NES_Memory::Memory[0xFFFB]->value(static_cast<uint8_t>(kHandlerStart >> 8));
+
+        NES_Register::PC = 0x8000;
+        NES_Register::S = 0xFD;
+        NES_Register::P.P = 0x20; // I flag clear
+        Interrupt::NMI(false);
+        Interrupt::IRQ(false);
+        NES_CPU::Step();
         Interrupt::NMI(true);
-        entered = false;
+        bool entered = false;
         for (int i = 0; i < 20 && !entered; ++i)
         {
             NES_CPU::Step();
             entered = NES_Register::PC == kHandlerStart;
         }
-        Check(entered, "NMI reentrancy: a fresh NMI request after the previous handler returned must still enter the handler");
+        Check(entered, "NMI I-flag: NMI should have entered the handler");
+        Check(NES_Register::P.Interrupt(), "NMI I-flag: the I flag is set while the handler runs");
+        for (int i = 0; i < 4 && NES_Register::PC != 0x8000 && NES_Register::PC != 0x8001; ++i)
+            NES_CPU::Step();
+        Check(!NES_Register::P.Interrupt(),
+              "NMI I-flag: after RTI the I flag must be back to its pre-interrupt value (clear)");
+    }
+
+    /// $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+    /// (http://wiki.nesdev.com/w/index.php/PPU_palettes): a game writing its
+    /// backdrop colour through $3F10 sets the universal backdrop. Tiny Toon
+    /// Adventures does, and its sky stayed black while the mirror was missing.
+    void TestSpritePaletteMirrorsBackdrop()
+    {
+        NES_PPU_Memory::Memory[0x3F10]->Value(0x31);
+        Check(NES_PPU_Memory::BGPalette[0]->Value() == 0x31,
+              "PPU palette: writing $3F10 must change the universal backdrop ($3F00)");
+        NES_PPU_Memory::Memory[0x3F00]->Value(0x0F);
+        Check(NES_PPU_Memory::SpritePalette[0]->Value() == 0x0F,
+              "PPU palette: writing $3F00 must be visible at $3F10");
+        NES_PPU_Memory::Memory[0x3F1C]->Value(0x22);
+        Check(NES_PPU_Memory::BGPalette[0xC]->Value() == 0x22,
+              "PPU palette: $3F1C must mirror $3F0C");
+        NES_PPU_Memory::Memory[0x3F11]->Value(0x05);
+        Check(NES_PPU_Memory::BGPalette[1]->Value() != 0x05,
+              "PPU palette: $3F11 is not a mirror of $3F01 and must keep its own value");
+        NES_PPU_Memory::BGPalette[0]->Value(0x0F);
+    }
+
+    /// Background colour-0 pixels are transparent and show the universal
+    /// backdrop colour, not black.
+    void TestBackdropColourShowsThroughTransparentBackground()
+    {
+        NES_PPU_Register::PPUCTRL.B(false);
+        NES_PPU_Register::PPUMASK.b(true);
+        NES_PPU_Register::PPUMASK.s(false);
+        constexpr uint16_t kBlankTile = 200;
+        for (int i = 0; i < 16; ++i)
+            NES_PPU_Memory::PatternTableN[0][kBlankTile * 16 + i]->Value(0);
+        for (int slot = 0; slot < 4; ++slot)
+            for (auto& cell : NES_PPU_Memory::NameTableN[slot])
+                cell->Value(kBlankTile);
+        NES_PPU_Memory::BGPalette[0]->Value(0x21);
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+        NES::NES_PPU::Picture frame = NES::NES_PPU::RenderStaticSnapshot();
+        Check(frame.GetPixel(5, 5) == NES_PPU_Palette::UniversalBackgroundColor(),
+              "Display: a blank background must show the universal backdrop colour");
+        Check(!(frame.GetPixel(5, 5) == NES::NES_PPU::Color::Black()),
+              "Display: the backdrop colour must not be replaced by black");
+        NES_PPU_Memory::BGPalette[0]->Value(0x0F);
+    }
+
+    /// Controller port: all buttons released at power-up (SELECT used to start
+    /// pressed), reads carry open-bus bit 6 ($40, the high address byte), and
+    /// a strobe write always restarts the read sequence at button A.
+    void TestControllerReadProtocol()
+    {
+        NES_GamePad::Controller fresh;
+        for (const auto& b : fresh.Button)
+            Check(!b.second, "Controller: button " + b.first + " must start released");
+
+        for (auto& b : NES_GamePad::Player1.Button)
+            b.second = false;
+        NES_GamePad::Player1.Button[0].second = true; // A
+        NES_Memory::Memory[0x4016]->Value(1);
+        NES_Memory::Memory[0x4016]->Value(0);
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: first read = A pressed plus open-bus bit ($41)");
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x40, "Controller: second read = B released plus open-bus bit ($40)");
+        // Leave the sequence part-way, then strobe: the next read must be A again.
+        NES_Memory::Memory[0x4016]->Value(1);
+        NES_Memory::Memory[0x4016]->Value(0);
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: a strobe write must restart the sequence at A");
+        NES_GamePad::Player1.Button[0].second = false;
+    }
+
+    /// A mid-frame double $2006 write copies t into v, so the following
+    /// scanlines are drawn from the new nametable row - the way Tiny Toon
+    /// Adventures and Dracula draw their status bars.
+    void TestMidFrameAddressLoadSplitsTheScreen()
+    {
+        NES_PPU_Register::PPUCTRL.B(false);
+        NES_PPU_Register::PPUCTRL.N(0);
+        NES_PPU_Register::PPUMASK.b(true);
+        NES_PPU_Register::PPUMASK.s(false);
+        constexpr uint16_t kRedTile = 210, kBlueTile = 211;
+        for (int i = 0; i < 8; ++i)
+        {
+            NES_PPU_Memory::PatternTableN[0][kRedTile * 16 + i]->Value(0xFF);
+            NES_PPU_Memory::PatternTableN[0][kRedTile * 16 + 8 + i]->Value(0x00);
+            NES_PPU_Memory::PatternTableN[0][kBlueTile * 16 + i]->Value(0x00);
+            NES_PPU_Memory::PatternTableN[0][kBlueTile * 16 + 8 + i]->Value(0xFF);
+        }
+        for (size_t k = 0; k < 960; ++k)
+            NES_PPU_Memory::NameTableN[0][k]->Value(k < 24 * 32 ? kRedTile : kBlueTile);
+        for (auto& cell : NES_PPU_Memory::AttributeTableN[0])
+            cell->Value(0);
+        NES_PPU_Memory::BGPalette[1]->Value(0x16);
+        NES_PPU_Memory::BGPalette[2]->Value(0x21);
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+
+        while (NES::NES_PPU::CurrentScanline() != 261)
+            NES::NES_PPU::AdvanceDots(1);
+        while (NES::NES_PPU::CurrentScanline() != 50)
+            NES::NES_PPU::AdvanceDots(1);
+        // $2006 = $0300: nametable 0, coarse Y 24 (the blue rows).
+        NES::NES_PPU::ScrollXoY = true;
+        NES_Memory::Memory[0x2006]->Value(0x03);
+        NES_Memory::Memory[0x2006]->Value(0x00);
+        while (NES::NES_PPU::CurrentScanline() != 100)
+            NES::NES_PPU::AdvanceDots(1);
+
+        NES::NES_PPU::Color red = NES::NES_PPU::DecodeBackgroundTileFresh(kRedTile, 0).GetPixel(0, 0);
+        NES::NES_PPU::Color blue = NES::NES_PPU::DecodeBackgroundTileFresh(kBlueTile, 0).GetPixel(0, 0);
+        Check(!(red == blue), "split test setup: red and blue tiles must differ");
+        Check(NES::NES_PPU::BackgroundBufferPixel(0, 30) == red,
+              "scanline split: rows before the $2006 load keep the original nametable rows");
+        Check(NES::NES_PPU::BackgroundBufferPixel(0, 80) == blue,
+              "scanline split: rows after the $2006 load are drawn from the loaded address");
+
+        while (NES::NES_PPU::CurrentScanline() != 261)
+            NES::NES_PPU::AdvanceDots(1);
+        Check(!NES::NES_PPU::ScrollSplitActive(),
+              "scanline split: the split ends at the pre-render line");
+        NES_PPU_Memory::BGPalette[1]->Value(0x0F);
+        NES_PPU_Memory::BGPalette[2]->Value(0x0F);
     }
 
     /// Regression test for the real IRQ-dispatch-stall bug found live via
@@ -218,7 +311,7 @@ namespace
 
         // Explicitly clear all three interrupt lines first - a *different*
         // test earlier in this same shared binary (e.g.
-        // TestNmiReentrancyGuard, which runs immediately before this one)
+        // TestNmiRestoresInterruptFlagOnRti, which runs immediately before this one)
         // could otherwise leave IRQ/NMI/BRK pending or P's I flag set,
         // silently borrowing this test's shared SevenClock countdown for
         // an unrelated dispatch and producing the exact same false-pass
@@ -1223,7 +1316,12 @@ int main()
 {
     NES_Console::INIT();
 
-    TestNmiReentrancyGuard();
+    TestNmiIsNotBlockedByRunningHandler();
+    TestNmiRestoresInterruptFlagOnRti();
+    TestSpritePaletteMirrorsBackdrop();
+    TestBackdropColourShowsThroughTransparentBackground();
+    TestControllerReadProtocol();
+    TestMidFrameAddressLoadSplitsTheScreen();
     TestIrqDispatchDoesNotStallIndefinitely();
     TestPPUAddressOverflow();
     TestFrameCyclesMatchesRealHardwareTiming();

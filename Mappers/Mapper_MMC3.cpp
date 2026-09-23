@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "Mapper_MMC3.h"
+#include "NES_CPU.h"
 #include "INES.h"
 #include "Interrupt.h"
 #include "NES_PPU_Memory.h"
@@ -70,6 +71,9 @@ namespace NES
 
     void Mapper_MMC3::WriteRegister(uint16_t address, uint8_t value)
     {
+        if (std::getenv("NES_TRACE_MMC3W"))
+            std::cerr << "[mmc3w] " << std::hex << address << " <- " << static_cast<int>(value) << std::dec
+                      << " scanline=" << NES_PPU::CurrentScanline() << " frame=" << NES_CPU::completedFrames.load() << std::endl;
         bool odd = (address & 0x0001) != 0;
         switch (address & 0x6000) // which $2000-sized quarter of $8000-$FFFF
         {

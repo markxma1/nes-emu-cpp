@@ -29,6 +29,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -267,6 +268,7 @@ namespace NES
     std::atomic<double> NES_CPU::speedMultiplier{1.0};
     std::atomic<double> NES_CPU::measuredFPS{0.0};
     std::atomic<long long> NES_CPU::completedFrames{0};
+    std::function<void(long long)> NES_CPU::frameHook;
     std::atomic<uint64_t> NES_CPU::totalCyclesEver{0};
     int NES_CPU::pendingExtraCycles = 0;
 
@@ -604,6 +606,24 @@ namespace NES
             {
                 NES_Console::RenderFrame();
                 completedFrames.fetch_add(1, std::memory_order_relaxed);
+                if (frameHook)
+                    frameHook(completedFrames.load(std::memory_order_relaxed));
+                if (const char* ramLogPath = std::getenv("NES_DUMP_RAM_LOG"))
+                {
+                    // Per-frame CPU-RAM dump straight from the CPU thread (frame
+                    // number + $0000-$07FF), so boot frames before the UI loop
+                    // starts are captured too. For diffing against a reference
+                    // emulator's own per-frame RAM log.
+                    static FILE* ramLog = std::fopen(ramLogPath, "wb");
+                    uint32_t fr = static_cast<uint32_t>(completedFrames.load());
+                    std::fwrite(&fr, 4, 1, ramLog);
+                    for (int a = 0; a < 0x800; a++)
+                    {
+                        uint8_t b = NES_Memory::Memory[static_cast<size_t>(a)]->Value();
+                        std::fwrite(&b, 1, 1, ramLog);
+                    }
+                    std::fflush(ramLog);
+                }
                 framesInFpsWindow++;
                 double fpsWindowSec = std::chrono::duration<double>(Clock::now() - fpsWindowStart).count();
                 if (fpsWindowSec >= 0.5)

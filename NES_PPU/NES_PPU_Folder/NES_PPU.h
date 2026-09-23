@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <array>
 #include "Picture.h"
 #include "Color.h"
 #include "BitmapWithInfo.h"
@@ -235,6 +236,19 @@ namespace NES
         /// themselves, may ever be touched by reading $2002.
         static bool ScrollXoY;
 
+        // --- Mid-frame scroll split (real hardware's t/v/x scroll registers) ---
+        // http://wiki.nesdev.com/w/index.php/PPU_scrolling. Games such as Tiny
+        // Toon Adventures draw a status bar by writing $2006 twice from a
+        // scanline IRQ: that copies the temporary address `t` into the live
+        // address `v`, so the following scanlines are drawn from a different
+        // nametable/row. The ordinary xScroll/yScroll pair models a whole-frame
+        // scroll; once such a $2006 load happens on a visible scanline, the
+        // remaining scanlines of that frame are drawn from `v` instead.
+        static void LoopyWriteControl(uint8_t value);
+        static void LoopyWriteScroll(uint8_t value, bool firstWrite);
+        static void LoopyWriteAddress(uint8_t value, bool firstWrite);
+        static bool ScrollSplitActive() { return splitActive; }
+
     private:
         // --- NES_PPU.cpp ---
         static Picture TempPaletteTable;
@@ -287,6 +301,10 @@ namespace NES
         // Table viewer window (NES/main.cpp's N key), which still wants a
         // "whole stable frame" view rather than per-scanline sampling.
         static Picture backgroundBuffer;
+        /// Universal backdrop colour ($3F00) as it was when each scanline was
+        /// rendered; Display() paints it under both sprite layers and the
+        /// background, whose colour-0 pixels are transparent.
+        static std::array<Color, 240> backdropByScanline;
 
     public:
         /// New: renders exactly one real on-screen
@@ -332,6 +350,13 @@ namespace NES
 
         // --- NES_PPU.Scroll.cpp ---
 
+        static uint16_t loopyT;      // temporary VRAM address (15 bits)
+        static uint16_t splitV;      // live VRAM address used while a split is active
+        static uint8_t fineX;        // 3-bit fine X scroll
+        static bool splitActive;
+        static bool splitPrevRendered;
+        static int splitStartLine;   // first scanline drawn from splitV
+        static void ApplySplitScroll(int scanline);
         static int xScrollTemp;
         static int yScrollTemp;
 
