@@ -15,6 +15,9 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <string>
+#include <memory>
+#include <vector>
 #include <array>
 #include "Picture.h"
 #include "Color.h"
@@ -94,6 +97,17 @@ namespace NES
         /// detail) since it's directly exercised by
         /// tests/cpu/cpu_check.cpp's regression test for this cache.
         static void ClearFreshTileCaches();
+        /// Called by the mapper whenever it rewrites CHR pattern data.
+        static void NoteChrChanged() { chrChangedSinceSnapshot = true; }
+        /// Forget which CHR state each nametable row was drawn with.
+        static void ClearChrRowSnapshots() { for (auto& nt : rowChrSnapshot) for (auto& r : nt) r.reset(); }
+        static void SetChrDescriptionCallback(std::function<std::string()> cb) { chrDescriber = std::move(cb); }
+        /// Nametable viewer: 0 = each tile row decoded with the CHR banks it was
+        /// drawn with, 1 = everything with the CHR banks active right now.
+        static void ToggleNameTableBankView() { nameTableBankView = 1 - nameTableBankView; }
+        static int NameTableBankView() { return nameTableBankView; }
+        /// One line per CHR state of the last drawn frame ("#1 from line 190: R0=..").
+        static std::string ChrStateLegend();
 
         /// Builds the pattern-table debug view (both 4KB banks side by side).
         static Picture PatternTable(int PN);
@@ -357,6 +371,28 @@ namespace NES
         static bool splitPrevRendered;
         static int splitStartLine;   // first scanline drawn from splitV
         static void ApplySplitScroll(int scanline);
+
+        // --- CHR state per nametable row (for the nametable viewer) ---
+        // Mappers such as MMC3 switch CHR banks in the middle of a frame, so
+        // "the pattern tables" is not one thing per frame. Every visible
+        // scanline is drawn with the CHR state in effect at that moment; the
+        // renderer remembers, per nametable tile row, which state that was.
+        struct ChrSnapshot
+        {
+            std::vector<uint8_t> data; // 8 KB, $0000-$1FFF
+            int id = 0;                // 0,1,2... in the order taken during the frame
+            int startScanline = 0;
+            std::string banks;         // mapper's CHR bank registers, for the legend
+        };
+        static std::shared_ptr<const ChrSnapshot> currentChrSnapshot;
+        static std::array<std::array<std::shared_ptr<const ChrSnapshot>, 30>, 4> rowChrSnapshot;
+        static bool chrChangedSinceSnapshot;
+        static std::vector<std::shared_ptr<const ChrSnapshot>> frameChrStates;
+        static std::string chrLegend;
+        static std::function<std::string()> chrDescriber;
+        static int nameTableBankView;
+        static void TakeChrSnapshotIfNeeded(int scanline);
+        static Picture DecodeBackgroundTileFromSnapshot(uint16_t tileID, int palette, const ChrSnapshot& chr);
         /// $2001 bits 1/2 clear -> hide background/sprites in the leftmost 8
         /// pixels (http://wiki.nesdev.com/w/index.php/PPU_registers#Mask_.28.242001.29_.3E_write).
         static void ClipLeftColumn(int screenY);

@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <string>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -86,6 +87,9 @@ namespace NES
         /// real scanline instead, since composing a frame is no longer a
         /// single end-of-frame snapshot (see NES_PPU::AdvanceDots()).
         virtual void OnScanline() {}
+
+        /// Human-readable list of the current CHR bank registers (debug viewer).
+        virtual std::string DescribeChrBanks() const { return ""; }
 
         // New: user-requested save/load-state feature
         // (see NES_SaveState's own comment for the full story). Most

@@ -80,6 +80,7 @@ namespace NES
     {
     public:
         void OnScanline() override;
+        std::string DescribeChrBanks() const override;
 
         // New: see Mapper::SerializeState()'s own
         // comment.

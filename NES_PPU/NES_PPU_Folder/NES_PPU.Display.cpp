@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_PPU.h"
+#include <mutex>
 #include "NES_PPU_Register.h"
 #include "NES_PPU_Palette.h"
 #include "NES_PPU_AttributeTable.h"
@@ -131,6 +132,44 @@ namespace NES
     // compose the picture - only the vblank/status timing moved, not frame
     // composition itself (see the plan for the per-scanline rendering
     // rewrite that still needs to happen for that part).
+    std::shared_ptr<const NES_PPU::ChrSnapshot> NES_PPU::currentChrSnapshot;
+    std::array<std::array<std::shared_ptr<const NES_PPU::ChrSnapshot>, 30>, 4> NES_PPU::rowChrSnapshot;
+    bool NES_PPU::chrChangedSinceSnapshot = true;
+
+    // Copies the 8 KB of pattern data whenever it may have changed since the
+    // last visible scanline (always at scanline 0), so each tile row can later
+    // be decoded with the CHR banks it was really drawn with.
+    std::vector<std::shared_ptr<const NES_PPU::ChrSnapshot>> NES_PPU::frameChrStates;
+    std::string NES_PPU::chrLegend;
+    std::function<std::string()> NES_PPU::chrDescriber;
+    int NES_PPU::nameTableBankView = 0;
+    static std::mutex chrLegendMutex;
+
+    void NES_PPU::TakeChrSnapshotIfNeeded(int scanline)
+    {
+        if (scanline != 0 && currentChrSnapshot && !chrChangedSinceSnapshot)
+            return;
+        if (scanline == 0)
+            frameChrStates.clear();
+        auto snap = std::make_shared<ChrSnapshot>();
+        snap->data.resize(0x2000);
+        for (size_t i = 0; i < 0x2000; i++)
+            snap->data[i] = NES_PPU_Memory::PatternTable[i]->value();
+        snap->id = static_cast<int>(frameChrStates.size());
+        snap->startScanline = scanline;
+        if (chrDescriber)
+            snap->banks = chrDescriber();
+        frameChrStates.push_back(snap);
+        currentChrSnapshot = snap;
+        chrChangedSinceSnapshot = false;
+    }
+
+    std::string NES_PPU::ChrStateLegend()
+    {
+        std::lock_guard<std::mutex> lock(chrLegendMutex);
+        return chrLegend;
+    }
+
     void NES_PPU::ClipLeftColumn(int screenY)
     {
         if (!NES_PPU_Register::PPUMASK.m())
@@ -172,6 +211,13 @@ namespace NES
         frame.DrawImage(backgroundBuffer, 0, 0);
         frame.DrawImage(spriteFrontBuffer, 0, 0);
 
+        {
+            std::string legend;
+            for (const auto& st : frameChrStates)
+                legend += "#" + std::to_string(st->id) + " from line " + std::to_string(st->startScanline) + ": " + st->banks + "\n";
+            std::lock_guard<std::mutex> lock(chrLegendMutex);
+            chrLegend = legend;
+        }
         NES_PPU_Palette::setAllPaletesAsOld();
         TempDisplay = frame;
         Draw(false);
@@ -336,6 +382,7 @@ namespace NES
             // mapper's bank/CHR changes from the earlier IRQ are already
             // in effect by the time this scanline's own row is decoded.
             ApplySplitScroll(scanline);
+            TakeChrSnapshotIfNeeded(scanline);
             RenderBackgroundScanline(scanline);
             RenderSpriteScanline(scanline);
             ClipLeftColumn(scanline);
@@ -480,6 +527,9 @@ namespace NES
         if (std::getenv("NES_TRACE_YSCROLL_SPLIT") && screenY >= 216 && screenY <= 239)
             std::cerr << "[bg-bottom] screenY=" << screenY << " yScroll=" << yScroll << " tileRow=" << tileRow
                       << " nrLeft=" << nrLeft << std::endl;
+
+        rowChrSnapshot[static_cast<size_t>(nrLeft)][static_cast<size_t>(localTileRow)] = currentChrSnapshot;
+        rowChrSnapshot[static_cast<size_t>(nrRight)][static_cast<size_t>(localTileRow)] = currentChrSnapshot;
 
         Picture logicalRow(64 * 8, 8);
         const std::vector<int> attrLeft = NES_PPU_AttributeTable::AttributeTable(nrLeft);

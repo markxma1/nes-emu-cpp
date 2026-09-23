@@ -191,6 +191,61 @@ namespace
         NES_PPU_Memory::BGPalette[0]->Value(0x0F);
     }
 
+    /// MMC3 games switch CHR banks mid-frame (status bar). The nametable viewer
+    /// must decode each tile row with the CHR state that row was drawn with, not
+    /// with whatever banks are active when the viewer refreshes.
+    void TestNameTableViewerUsesChrStateOfDrawnRow()
+    {
+        NES::NES_PPU::ClearChrRowSnapshots();
+        NES_PPU_Register::PPUCTRL.B(false);
+        NES_PPU_Register::PPUMASK.b(true);
+        NES_PPU_Register::PPUMASK.s(false);
+        NES_PPU_Register::PPUMASK.m(true);
+        constexpr uint16_t kTile = 213;
+        for (int i = 0; i < 8; ++i)
+        {
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + i]->Value(0xFF); // colour 1
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + 8 + i]->Value(0x00);
+        }
+        for (size_t k = 0; k < 960; ++k)
+            NES_PPU_Memory::NameTableN[0][k]->Value(kTile);
+        for (auto& cell : NES_PPU_Memory::AttributeTableN[0])
+            cell->Value(0);
+        NES_PPU_Memory::BGPalette[1]->Value(0x16);
+        NES_PPU_Memory::BGPalette[2]->Value(0x21);
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+        NES::NES_PPU::NoteChrChanged();
+
+        while (NES::NES_PPU::CurrentScanline() != 261)
+            NES::NES_PPU::AdvanceDots(1);
+        while (NES::NES_PPU::CurrentScanline() != 5)
+            NES::NES_PPU::AdvanceDots(1);
+        NES::NES_PPU::Color drawn = NES::NES_PPU::DecodeBackgroundTileFresh(kTile, 0).GetPixel(0, 0);
+
+        // Later in the frame the banks change: the tile now decodes as colour 2.
+        for (int i = 0; i < 8; ++i)
+        {
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + i]->Value(0x00);
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + 8 + i]->Value(0xFF);
+        }
+        NES::NES_PPU::ClearFreshTileCaches();
+        NES::NES_PPU::Color current = NES::NES_PPU::DecodeBackgroundTileFresh(kTile, 0).GetPixel(0, 0);
+        Check(!(drawn == current), "CHR viewer test setup: old and new bank must decode differently");
+
+        Check(NES::NES_PPU::NameTabele(true).GetPixel(2, 2) == drawn,
+              "nametable viewer: a row drawn before a CHR switch must be shown with the old banks");
+        NES::NES_PPU::ToggleNameTableBankView();
+        Check(NES::NES_PPU::NameTabele(true).GetPixel(2, 2) == current,
+              "nametable viewer: 'current banks' mode must use the banks active now");
+        NES::NES_PPU::ToggleNameTableBankView();
+
+        while (NES::NES_PPU::CurrentScanline() != 261)
+            NES::NES_PPU::AdvanceDots(1);
+        NES_PPU_Memory::BGPalette[1]->Value(0x0F);
+        NES_PPU_Memory::BGPalette[2]->Value(0x0F);
+    }
+
     /// $2001 bit 1 clear hides the background in the leftmost 8 pixels; the
     /// backdrop colour shows there instead (Dracula relies on this).
     void TestLeftColumnMask()
@@ -716,6 +771,7 @@ namespace
     /// no synthetic CHR data needed.
     void TestNameTableViewerBlendsTransparentTilesAsBlack()
     {
+        NES::NES_PPU::ClearChrRowSnapshots();
         NES::NES_PPU::Picture nameTable = NES::NES_PPU::NameTabele(true);
         NES::NES_PPU::Color pixel = nameTable.GetPixel(4, 4);
         Check(pixel.R == 0 && pixel.G == 0 && pixel.B == 0,
@@ -753,6 +809,7 @@ namespace
     /// simpler ordering correctly, so it would not reproduce anything.)
     void TestNameTableViewerUsesFreshDecodeNotStaleTileCache()
     {
+        NES::NES_PPU::ClearChrRowSnapshots();
         // Tile 0, pixel (0,0): bit 7 of the low bitplane byte set, high
         // bitplane byte left 0 -> palette index 1 at pixel (px=0, py=0) -
         // see NES_PPU::CreateNewTile()'s pixel math. Needed because with no
@@ -872,6 +929,7 @@ namespace
     /// line.
     void TestNameTableDebugOverlayMirroringDividerOrientation()
     {
+        NES::NES_PPU::ClearChrRowSnapshots();
         INES::Mirror savedArrangement = INES::arrangement;
 
         int w = NES::NES_PPU::NameTabele(true).Width();
@@ -908,6 +966,7 @@ namespace
     /// the wrong two.
     void TestNameTableDebugOverlayQuadrantsPairCorrectly()
     {
+        NES::NES_PPU::ClearChrRowSnapshots();
         INES::Mirror savedArrangement = INES::arrangement;
 
         // DecodeBackgroundTileFresh() reads from PatternTableN[1] instead
@@ -1021,6 +1080,7 @@ namespace
     /// it actually does affect (XScroll > 256).
     void TestDrawDisplayFrameWraparoundIsContinuous()
     {
+        NES::NES_PPU::ClearChrRowSnapshots();
         NES_PPU_Register::PPUCTRL.N(1); // X nametable select on, so AddxScroll() can reach 256-511
         NES::NES_PPU::ScrollXoY = true;
         NES_PPU_Register::PPUSCROLL->Value(static_cast<uint8_t>(300 - 256)); // XScroll() -> 300
@@ -1356,6 +1416,7 @@ int main()
     TestSpritePaletteMirrorsBackdrop();
     TestBackdropColourShowsThroughTransparentBackground();
     TestLeftColumnMask();
+    TestNameTableViewerUsesChrStateOfDrawnRow();
     TestControllerReadProtocol();
     TestMidFrameAddressLoadSplitsTheScreen();
     TestIrqDispatchDoesNotStallIndefinitely();

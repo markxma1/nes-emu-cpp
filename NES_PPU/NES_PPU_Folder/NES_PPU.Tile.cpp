@@ -331,4 +331,21 @@ namespace NES
         }
         return bitmap;
     }
+
+    NES_PPU::Picture NES_PPU::DecodeBackgroundTileFromSnapshot(uint16_t tileID, int palette, const ChrSnapshot& chr)
+    {
+        int start = (NES_PPU_Register::PPUCTRL.B() ? 0x1000 : 0) + tileID * 16;
+        NES_PPU_Color color = NES_PPU_Palette::getPalette(palette);
+        Picture bitmap(8, 8);
+        for (int j = 0; j < 8; j++)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                int a = (chr.data[static_cast<size_t>(start + i)] >> j) & 0x01;
+                int b = ((chr.data[static_cast<size_t>(start + i + 8)] >> j) & 0x01) << 1;
+                bitmap.SetPixel(color.color[static_cast<uint8_t>(a | b)], 7 - j, i);
+            }
+        }
+        return bitmap;
+    }
 }

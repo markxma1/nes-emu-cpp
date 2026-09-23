@@ -163,6 +163,14 @@ namespace NES
     // reproduces the real per-scanline PPU-A12-toggle cadence directly -
     // a game's IRQ-driven bank switch now takes effect starting at the
     // exact scanline it should.
+    std::string Mapper_MMC3::DescribeChrBanks() const
+    {
+        std::string out = (bankSelect & 0x80) ? "inv " : "";
+        for (int i = 0; i < 6; i++)
+            out += "R" + std::to_string(i) + "=" + std::to_string(r[i]) + " ";
+        return out;
+    }
+
     void Mapper_MMC3::OnScanline()
     {
         ClockIrqCounter();

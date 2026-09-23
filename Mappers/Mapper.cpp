@@ -150,5 +150,6 @@ namespace NES
             NES_PPU_Memory::PatternTable[static_cast<size_t>(ppuStart + i)]->value(byte);
         }
         NES_PPU::ClearFreshTileCaches();
+        NES_PPU::NoteChrChanged();
     }
 }

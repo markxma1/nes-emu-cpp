@@ -69,6 +69,11 @@ namespace NES
         // NES_ROM::CurrentMapper() only ever changes on a ROM
         // load/switch - the lambda re-queries it each time it runs, so a
         // ROM switch after this still reaches the newly loaded mapper.
+        NES_PPU::SetChrDescriptionCallback([]() -> std::string {
+            if (Mapper* mapper = NES_ROM::CurrentMapper())
+                return mapper->DescribeChrBanks();
+            return "";
+        });
         NES_PPU::SetScanlineCallback([]() {
             if (Mapper* mapper = NES_ROM::CurrentMapper())
                 mapper->OnScanline();

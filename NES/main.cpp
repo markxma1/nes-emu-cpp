@@ -734,7 +734,21 @@ namespace
         if (nameTableWindow.visible)
         {
             NES_PPU::Picture nameTable = NES::NES_Console::getNameTabeleDebugOverlay();
-            cv::imshow(nameTableWindow.name, nameTable.Image());
+            cv::Mat ntImg = nameTable.Image().clone();
+            std::string header = std::string("[B] CHR view: ") +
+                (NES::NES_PPU::NameTableBankView() == 0 ? "as drawn (per row)" : "current banks only");
+            cv::putText(ntImg, header, cv::Point(6, 14), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+            std::istringstream legend(NES::NES_PPU::ChrStateLegend());
+            std::string line;
+            int ly = 28;
+            static const cv::Scalar kBarColors[6] = { {0,255,0}, {0,0,255}, {255,0,0}, {0,255,255}, {255,255,0}, {255,0,255} };
+            int idx = 0;
+            while (std::getline(legend, line))
+            {
+                cv::putText(ntImg, line, cv::Point(6, ly), cv::FONT_HERSHEY_SIMPLEX, 0.35, kBarColors[idx % 6], 1);
+                ly += 13; idx++;
+            }
+            cv::imshow(nameTableWindow.name, ntImg);
         }
         if (patternTableWindow.visible)
         {
@@ -771,6 +785,7 @@ namespace
         switch (key)
         {
         case 'n': case 'N': nameTableWindow.toggle(); break;
+        case 'b': case 'B': NES::NES_PPU::ToggleNameTableBankView(); break;
         case 'p': case 'P': patternTableWindow.toggle(); break;
         case 'o': case 'O': patternTablePalette = (patternTablePalette + 1) % 4; break;
         case 'c': case 'C': cpuSpeedWindow.toggle(); break;
@@ -1210,7 +1225,7 @@ int main(int argc, char** argv)
         if (src->Available() && src->Name() != "Keyboard")
             std::cout << ", G to remap the " << src->Name();
     std::cout << "." << std::endl;
-    std::cout << "Debug windows: N = Name Table, P = Pattern Table (O cycles its palette), "
+    std::cout << "Debug windows: N = Name Table (B toggles CHR view: as drawn per row / current banks), P = Pattern Table (O cycles its palette), "
                  "C = CPU Speed, V = Memory Viewer ([/] to scroll a page, {/} to jump 4K), "
                  "U = OAM Viewer (all 64 sprites at their real OAM position, including ones "
                  "parked below the red line at the bottom of the screen)"

@@ -174,6 +174,19 @@ namespace NES
         Picture bitmap = NameTabele(true);
         DrawDisplayFrame(bitmap);
 
+        // Left-edge strip per tile row: colour = which CHR state (bank
+        // setup) that row was drawn with; the legend in the window lists them.
+        static const Color kStateColors[6] = { Color(0, 255, 0), Color(255, 0, 0), Color(0, 0, 255), Color(255, 255, 0), Color(0, 255, 255), Color(255, 0, 255) };
+        for (int nt = 0; nt < 4; nt++)
+            for (int row = 0; row < 30; row++)
+            {
+                const auto& snap = rowChrSnapshot[static_cast<size_t>(nt)][static_cast<size_t>(row)];
+                if (!snap)
+                    continue;
+                int x0 = (nt % 2) * 256, y0 = (nt / 2) * 240 + row * 8;
+                bitmap.FillRectangle(kStateColors[snap->id % 6], x0, y0, x0 + 3, y0 + 8);
+            }
+
         int w = TempNameTable.Width();
         int h = TempNameTable.Height();
         // RewireNameTableMirroring()'s own bankForSlot table
@@ -337,7 +350,12 @@ namespace NES
                 int k = K(X, Y, i, j);
                 int c = Attribute[static_cast<size_t>(k)];
                 int t = NES_PPU_Memory::NameTableN[static_cast<size_t>(Nr)][static_cast<size_t>(k)]->Value();
-                Picture temp = DecodeBackgroundTileFresh(static_cast<uint16_t>(t), c);
+                // Decode with the CHR state this row was last drawn with
+                // (e.g. the game banks above an MMC3 status-bar split, not
+                // the status-bar banks that are active right now).
+                const auto& snap = rowChrSnapshot[static_cast<size_t>(Nr)][static_cast<size_t>(k / 32)];
+                Picture temp = (snap && nameTableBankView == 0) ? DecodeBackgroundTileFromSnapshot(static_cast<uint16_t>(t), c, *snap)
+                                    : DecodeBackgroundTileFresh(static_cast<uint16_t>(t), c);
                 image.DrawImage(temp, j * 8, i * 8);
             }
         }
