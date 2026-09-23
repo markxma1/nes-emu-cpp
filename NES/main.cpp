@@ -759,6 +759,18 @@ namespace
             cv::Mat combined(patImg.rows + palImg.rows, std::max(patImg.cols, palImg.cols), CV_8UC3, cv::Scalar(0, 0, 0));
             patImg.copyTo(combined(cv::Rect(0, 0, patImg.cols, patImg.rows)));
             palImg.copyTo(combined(cv::Rect(0, patImg.rows, palImg.cols, palImg.rows)));
+            {
+                std::string label = "[K] CHR: live";
+                int st = NES::NES_PPU::PatternViewState();
+                if (st >= 0)
+                {
+                    std::istringstream lg(NES::NES_PPU::ChrStateLegend());
+                    std::string l;
+                    for (int i = 0; i <= st && std::getline(lg, l); i++) {}
+                    label = "[K] CHR " + l;
+                }
+                cv::putText(combined, label, cv::Point(4, 12), cv::FONT_HERSHEY_SIMPLEX, 0.33, cv::Scalar(0, 255, 255), 1);
+            }
             cv::imshow(patternTableWindow.name, combined);
         }
         if (cpuSpeedWindow.visible)
@@ -786,6 +798,7 @@ namespace
         {
         case 'n': case 'N': nameTableWindow.toggle(); break;
         case 'b': case 'B': NES::NES_PPU::ToggleNameTableBankView(); break;
+        case 'k': case 'K': NES::NES_PPU::CyclePatternViewState(); break;
         case 'p': case 'P': patternTableWindow.toggle(); break;
         case 'o': case 'O': patternTablePalette = (patternTablePalette + 1) % 4; break;
         case 'c': case 'C': cpuSpeedWindow.toggle(); break;
@@ -1225,7 +1238,7 @@ int main(int argc, char** argv)
         if (src->Available() && src->Name() != "Keyboard")
             std::cout << ", G to remap the " << src->Name();
     std::cout << "." << std::endl;
-    std::cout << "Debug windows: N = Name Table (B toggles CHR view: as drawn per row / current banks), P = Pattern Table (O cycles its palette), "
+    std::cout << "Debug windows: N = Name Table (B toggles CHR view: as drawn per row / current banks), P = Pattern Table (O cycles its palette, K cycles CHR state), "
                  "C = CPU Speed, V = Memory Viewer ([/] to scroll a page, {/} to jump 4K), "
                  "U = OAM Viewer (all 64 sprites at their real OAM position, including ones "
                  "parked below the red line at the bottom of the screen)"

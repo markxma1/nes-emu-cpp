@@ -142,8 +142,28 @@ namespace NES
     std::vector<std::shared_ptr<const NES_PPU::ChrSnapshot>> NES_PPU::frameChrStates;
     std::string NES_PPU::chrLegend;
     std::function<std::string()> NES_PPU::chrDescriber;
-    int NES_PPU::nameTableBankView = 0;
-    static std::mutex chrLegendMutex;
+    int NES_PPU::nameTableBankView = std::getenv("NES_BANK_VIEW_LIVE") ? 1 : 0;
+    std::mutex NES_PPU::chrPublishMutex;
+    std::vector<std::shared_ptr<const NES_PPU::ChrSnapshot>> NES_PPU::publishedChrStates;
+    int NES_PPU::patternViewState = -1;
+
+    void NES_PPU::CyclePatternViewState()
+    {
+        std::lock_guard<std::mutex> lock(chrPublishMutex);
+        patternViewState++;
+        if (patternViewState >= static_cast<int>(publishedChrStates.size()))
+            patternViewState = -1;
+    }
+
+    // The CHR state in effect at scanline y: the last one taken at or before it.
+    std::shared_ptr<const NES_PPU::ChrSnapshot> NES_PPU::ChrStateForScanline(int y)
+    {
+        std::shared_ptr<const ChrSnapshot> found;
+        for (const auto& st : frameChrStates)
+            if (st->startScanline <= y)
+                found = st;
+        return found;
+    }
 
     void NES_PPU::TakeChrSnapshotIfNeeded(int scanline)
     {
@@ -166,7 +186,7 @@ namespace NES
 
     std::string NES_PPU::ChrStateLegend()
     {
-        std::lock_guard<std::mutex> lock(chrLegendMutex);
+        std::lock_guard<std::mutex> lock(chrPublishMutex);
         return chrLegend;
     }
 
@@ -215,8 +235,9 @@ namespace NES
             std::string legend;
             for (const auto& st : frameChrStates)
                 legend += "#" + std::to_string(st->id) + " from line " + std::to_string(st->startScanline) + ": " + st->banks + "\n";
-            std::lock_guard<std::mutex> lock(chrLegendMutex);
+            std::lock_guard<std::mutex> lock(chrPublishMutex);
             chrLegend = legend;
+            publishedChrStates = frameChrStates;
         }
         NES_PPU_Palette::setAllPaletesAsOld();
         TempDisplay = frame;
@@ -676,7 +697,7 @@ namespace NES
                     // 8x8 mode: full byte as tile index, bank from PPUCTRL.S().
                     uint16_t tileIndex = SpriteTile.adress->Value();
                     int bank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
-                    Picture tile = DecodeSpriteTileFresh(tileIndex, Attribute.Palette(), bank);
+                    Picture tile = DecodeSpriteForViewer(tileIndex, Attribute.Palette(), bank, spriteTopY);
 
                     if (Attribute.FlipH())
                         tile.RotateFlip(RotateFlipType::RotateNoneFlipX);
@@ -698,8 +719,8 @@ namespace NES
                     uint16_t topIndex = SpriteTile.Number();
                     uint16_t bottomIndex = static_cast<uint16_t>(topIndex + 1);
 
-                    Picture topTile = DecodeSpriteTileFresh(topIndex, Attribute.Palette(), bank);
-                    Picture bottomTile = DecodeSpriteTileFresh(bottomIndex, Attribute.Palette(), bank);
+                    Picture topTile = DecodeSpriteForViewer(topIndex, Attribute.Palette(), bank, spriteTopY);
+                    Picture bottomTile = DecodeSpriteForViewer(bottomIndex, Attribute.Palette(), bank, spriteTopY);
 
                     if (Attribute.FlipH())
                     {
@@ -807,6 +828,16 @@ namespace NES
     // limit and OAM priority/transparency ordering entirely - it's a raw
     // memory dump rendered as a picture, not a faithful re-render of what
     // the PPU would actually output.
+    // Debug viewers: decode with the CHR banks that were active when the
+    // sprite's scanline was drawn (falls back to the live banks).
+    NES_PPU::Picture NES_PPU::DecodeSpriteForViewer(uint16_t id, int palette, int bank, int y)
+    {
+        if (nameTableBankView == 0)
+            if (auto st = ChrStateForScanline(y))
+                return DecodeTileFromChr(*st, bank * 0x1000 + id * 16, NES_PPU_Palette::getSpriteColorPalette(palette));
+        return DecodeSpriteTileFresh(id, palette, bank);
+    }
+
     NES_PPU::Picture NES_PPU::OAMDebugOverlay()
     {
         constexpr int kCanvasHeight = 280; // 256 (real Y range) + 16 (tallest sprite) + margin
@@ -829,7 +860,7 @@ namespace NES
                 {
                     uint16_t tileIndex = SpriteTile.adress->Value();
                     int bank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
-                    Picture tile = DecodeSpriteTileFresh(tileIndex, Attribute.Palette(), bank);
+                    Picture tile = DecodeSpriteForViewer(tileIndex, Attribute.Palette(), bank, spriteTopY);
                     if (Attribute.FlipH())
                         tile.RotateFlip(RotateFlipType::RotateNoneFlipX);
                     if (Attribute.FlipV())
@@ -841,8 +872,8 @@ namespace NES
                     int bank = SpriteTile.Bank() ? 1 : 0;
                     uint16_t topIndex = SpriteTile.Number();
                     uint16_t bottomIndex = static_cast<uint16_t>(topIndex + 1);
-                    Picture topTile = DecodeSpriteTileFresh(topIndex, Attribute.Palette(), bank);
-                    Picture bottomTile = DecodeSpriteTileFresh(bottomIndex, Attribute.Palette(), bank);
+                    Picture topTile = DecodeSpriteForViewer(topIndex, Attribute.Palette(), bank, spriteTopY);
+                    Picture bottomTile = DecodeSpriteForViewer(bottomIndex, Attribute.Palette(), bank, spriteTopY);
                     if (Attribute.FlipH())
                     {
                         topTile.RotateFlip(RotateFlipType::RotateNoneFlipX);

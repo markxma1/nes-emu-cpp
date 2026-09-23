@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_PPU.h"
+#include <mutex>
 #include "NES_PPU_Register.h"
 #include "NES_PPU_Palette.h"
 #include <algorithm>
@@ -312,8 +313,40 @@ namespace NES
 
     /// Creates a Bitmap with the patterns used for the running game.
     /// @param PN palette number
+    NES_PPU::Picture NES_PPU::DecodeTileFromChr(const ChrSnapshot& chr, int startAddress, const NES_PPU_Color& color)
+    {
+        Picture bitmap(8, 8);
+        for (int j = 0; j < 8; j++)
+            for (int i = 0; i < 8; i++)
+            {
+                int a = (chr.data[static_cast<size_t>(startAddress + i)] >> j) & 0x01;
+                int b = ((chr.data[static_cast<size_t>(startAddress + i + 8)] >> j) & 0x01) << 1;
+                bitmap.SetPixel(color.color[static_cast<uint8_t>(a | b)], 7 - j, i);
+            }
+        return bitmap;
+    }
+
     NES_PPU::Picture NES_PPU::PatternTable(int PN)
     {
+        std::shared_ptr<const ChrSnapshot> shown;
+        {
+            std::lock_guard<std::mutex> lock(chrPublishMutex);
+            if (patternViewState >= 0 && patternViewState < static_cast<int>(publishedChrStates.size()))
+                shown = publishedChrStates[static_cast<size_t>(patternViewState)];
+        }
+        if (shown)
+        {
+            Picture snap(128 * 2, 128);
+            NES_PPU_Color color = NES_PPU_Palette::getPalette(PN);
+            for (int i = 0; i < 16; i++)
+                for (int j = 0; j < 16; j++)
+                {
+                    int t = (i * 16 + j) * 16;
+                    snap.DrawImage(DecodeTileFromChr(*shown, t, color), j * 8, i * 8);
+                    snap.DrawImage(DecodeTileFromChr(*shown, t + 4096, color), (j + 16) * 8, i * 8);
+                }
+            return snap;
+        }
         Picture bitmap(TempPatternTable);
         if (NES_PPU_Register::PPUCTRL.V())
         {
