@@ -697,7 +697,7 @@ namespace NES
                     // 8x8 mode: full byte as tile index, bank from PPUCTRL.S().
                     uint16_t tileIndex = SpriteTile.adress->Value();
                     int bank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
-                    Picture tile = DecodeSpriteForViewer(tileIndex, Attribute.Palette(), bank, spriteTopY);
+                    Picture tile = DecodeSpriteTileFresh(tileIndex, Attribute.Palette(), bank);
 
                     if (Attribute.FlipH())
                         tile.RotateFlip(RotateFlipType::RotateNoneFlipX);
@@ -719,8 +719,8 @@ namespace NES
                     uint16_t topIndex = SpriteTile.Number();
                     uint16_t bottomIndex = static_cast<uint16_t>(topIndex + 1);
 
-                    Picture topTile = DecodeSpriteForViewer(topIndex, Attribute.Palette(), bank, spriteTopY);
-                    Picture bottomTile = DecodeSpriteForViewer(bottomIndex, Attribute.Palette(), bank, spriteTopY);
+                    Picture topTile = DecodeSpriteTileFresh(topIndex, Attribute.Palette(), bank);
+                    Picture bottomTile = DecodeSpriteTileFresh(bottomIndex, Attribute.Palette(), bank);
 
                     if (Attribute.FlipH())
                     {
