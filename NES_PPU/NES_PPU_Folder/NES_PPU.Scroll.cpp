@@ -30,7 +30,7 @@ namespace NES
     int NES_PPU::rawYScroll = 0;
 
     /// PPUSCROLL is write-only on real hardware; a CPU read of $2005 isn't
-    /// meaningful, so this always returns 0 (matches the C# original).
+    /// meaningful, so this always returns 0 (deliberately).
     uint8_t NES_PPU::Scroll()
     {
         return 0;
@@ -44,12 +44,10 @@ namespace NES
         }
         else
         {
-            // FIXED (was a preserved C# bug, now corrected per explicit user
-            // request to fix the analyzed bugs one at a time): the C#
-            // original (NES_PPU/NES_PPU_Folder/NES_PPU.Scroll.cs Scroll
-            // setter) did `if (value > 239) value -= 255;` on a `byte` -  C#
-            // compound assignment on byte re-truncates the int result back
-            // to a byte immediately, same as an explicit uint8_t cast would.
+            // FIXED: this used to do `if (value > 239) value -= 255;` on a
+            // `uint8_t`, and compound assignment on a byte re-truncates the
+            // int result back to a byte immediately, same as an explicit
+            // uint8_t cast would.
             //
             // Per http://wiki.nesdev.com/w/index.php/PPU_scrolling, raw
             // PPUSCROLL Y writes of 240-255 are the documented "attribute
@@ -63,9 +61,9 @@ namespace NES
             // their "if (YScroll() < 0)" branches for scrolling just past a
             // nametable's top edge.
             //
-            // The C# version's byte truncation discarded that sign before
+            // That byte truncation discarded that sign before
             // YScroll(int) ever saw it: in mod-256 arithmetic, subtracting
-            // 255 is the same as adding 1, so the original's net effect was
+            // 255 is the same as adding 1, so the old net effect was
             // `value + 1` (240 became 241 - still positive, still outside
             // the intended 0-239 range) instead of the intended -16. Fixed
             // here by keeping the result as a signed int (`value - 256`
@@ -89,9 +87,7 @@ namespace NES
 
     void NES_PPU::XScroll(int value)
     {
-        // FIXED (was a preserved C# bug, now corrected per explicit user
-        // request to fix the analyzed bugs one at a time): the C# original
-        // (NES_PPU/NES_PPU_Folder/NES_PPU.Scroll.cs XScroll setter) called
+        // FIXED: this used to call
         // `AddxScroll(value)` for its side-effect but discarded the return
         // value - unlike YScroll's setter, which does `value =
         // AddyScroll(value)`. So PPUCTRL's nametable-X-select bit (N & 1,
@@ -129,7 +125,7 @@ namespace NES
         RecomputeXScroll();
     }
 
-    // NEW, no C# equivalent - see XScroll(int)'s own FIXED note on the
+    // New: see XScroll(int)'s own FIXED note on the
     // write-order bug this exists to close. Re-derives xScroll purely from
     // the last raw $2005 X write and PPUCTRL's *current* nametable-select
     // bit - safe to call any number of times (idempotent for unchanged
@@ -161,7 +157,7 @@ namespace NES
         RecomputeYScroll();
     }
 
-    // NEW, no C# equivalent - see RecomputeXScroll()'s own comment, same
+    // New: see RecomputeXScroll()'s own comment, same
     // reasoning for the Y axis.
     void NES_PPU::RecomputeYScroll()
     {

@@ -21,7 +21,7 @@
 
 namespace NES
 {
-    /// @brief Parses an iNES ROM header. Port of INES/INES.cs.
+    /// @brief Parses an iNES ROM header.
     /// http://wiki.nesdev.com/w/index.php/INES
     class INES
     {

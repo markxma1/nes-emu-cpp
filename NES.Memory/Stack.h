@@ -19,7 +19,7 @@
 
 namespace NES
 {
-    /// @brief The 6502 hardware stack at $0100-$01FF. Port of NES.Memory/Stack.cs.
+    /// @brief The 6502 hardware stack at $0100-$01FF.
     /// http://wiki.nesdev.com/w/index.php/Stack
     class Stack
     {

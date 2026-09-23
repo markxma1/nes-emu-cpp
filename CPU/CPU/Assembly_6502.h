@@ -22,7 +22,7 @@
 namespace NES
 {
     /// @brief One static method per 6502 opcode (name = MNEMONIC_HEXOPCODE).
-    /// Port of CPU/CPU/Assembly_6502.cs. Every method here is looked up from
+    /// Every method here is looked up from
     /// AssemblyList's opcode table and does exactly one instruction's work;
     /// operand fetching/PC advancement happens in AssemblyList, not here.
     /// See https://en.wikibooks.org/wiki/6502_Assembly and http://nesdev.com/6502.txt

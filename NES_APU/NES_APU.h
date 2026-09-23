@@ -23,8 +23,7 @@ namespace NES
     /// @brief NES Audio Processing Unit: 2 pulse channels, triangle, noise
     /// and DMC (delta-modulation sample playback), mixed to one mono signal.
     ///
-    /// New code, not a port of anything - the C# original never implemented
-    /// audio (no NES_APU.cs exists anywhere in the original solution). Built
+    /// Built
     /// from scratch against nesdev's APU documentation:
     /// - http://wiki.nesdev.com/w/index.php/APU (register map, clocking)
     /// - http://wiki.nesdev.com/w/index.php/APU_Pulse (duty tables, timer)

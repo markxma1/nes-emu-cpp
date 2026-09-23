@@ -15,41 +15,26 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 ///
-/// @brief Entry point. This is new code, not a port of any single C# file -
-/// per the porting brief, only the UI shell is allowed to differ from the
-/// C# original. It replaces two C# pieces at once:
+/// @brief Entry point and UI shell. It does two things:
 ///
-///  - NES/Program.cs + NES/MainForm.cs: `NES_Console::INIT()`, loading a ROM
-///    and starting `NES_Console::Run()` on a background thread (the C#
-///    original used a WinForms `BackgroundWorker`; here it's a plain
-///    `std::thread`, matching backgroundWorker1_DoWork).
-///  - NES/Forms/Monitor.cs: polling `NES_Console::getDisplay()` and drawing
-///    it, originally on a WinForms `timer1_Tick`; here it's a plain loop
-///    around `cv::imshow`.
+///  - Startup: `NES_Console::INIT()`, loading a ROM and starting
+///    `NES_Console::Run()` on a background `std::thread`.
+///  - Display: polling `NES_Console::getDisplay()` and drawing it in a
+///    plain loop around `cv::imshow`.
 ///
-/// NOTE: the C# original never actually wired keyboard (or any other) input
-/// to NES_GamePad::Player1 anywhere in the solution - Player1/Player2/3/4's
-/// Button map is only ever default-constructed, never written to outside of
-/// NES_GamePad.cs itself (checked: no KeyDown/KeyPress/KeyUp handler exists
-/// in any .cs file). So the original, run as-is, has no way to actually
-/// play a game interactively. Since this file is pure new UI-shell code
-/// (not a port of an existing class), input wiring is added below as a
-/// UI-layer addition, not a "fix" to any ported logic - it only calls the
-/// pre-existing, already-ported NES_GamePad::Player1 public API the
-/// original class always had. See InputSource.h for how that wiring is
+/// NOTE: NES_GamePad's Player1/Player2/3/4 Button maps are never written to
+/// by the emulator core itself, so input wiring lives here in the UI layer:
+/// it only calls the public NES_GamePad::Player1 API. See InputSource.h for how that wiring is
 /// structured: main.cpp only ever asks "is this button down, across
 /// whatever InputSources are active" - it doesn't know or care whether a
 /// keyboard or a gamepad answered.
 ///
 /// The three debug windows below (NameTable/PatternTable/CPU speed) are the
-/// same UI-shell-only replacement for the C# original's NES/Forms/NameTable.cs,
-/// PatternTable.cs and CPUSpeedForm.cs: those were WinForms windows opened
-/// from buttons on MainForm and refreshed on a timer, reading the exact same
+/// UI-shell-only windows that read the
 /// NES_Console::getNameTabele/getPatternTable/getPaletteTable/getCPUSpeed
-/// entry points this port already exposes unchanged. Only the window
-/// toggling (keys instead of buttons) and the CPU-speed line chart (drawn
-/// directly with OpenCV instead of a WinForms Chart control) are new here -
-/// the actual debug data comes from already-ported, unmodified core code.
+/// entry points. Only the window toggling (via keys) and the CPU-speed
+/// line chart (drawn directly with OpenCV) live here - the actual debug
+/// data comes from the core code.
 #include <opencv2/opencv.hpp>
 
 #include "NES_Console.h"
@@ -97,7 +82,7 @@
 namespace
 {
     /// Integer upscale factor for the 256x240 NES framebuffer - purely a
-    /// display convenience (UI layer), has no ported C# equivalent.
+    /// display convenience (UI layer).
     constexpr int kScale = 3;
 
     void SetButton(NES::NES_GamePad::Controller& pad, const std::string& name, bool down)
@@ -112,7 +97,7 @@ namespace
         }
     }
 
-    // NEW, no C# equivalent - see the input record/playback feature below
+    // See the input record/playback feature below
     // (recordedEvents/NES_PLAYBACK_INPUT). Mirrors SetButton()'s own lookup.
     bool GetButton(const NES::NES_GamePad::Controller& pad, const std::string& name)
     {
@@ -140,8 +125,7 @@ namespace
                 src->Poll();
     }
 
-    // NEW, no C# equivalent (WinForms key events are inherently
-    // window-scoped, so this never came up in the original) - found live:
+    // Found live:
     // KeyboardInputSource reads raw /dev/input/eventN nodes directly (see
     // its own constructor comment on why - it needs to work under Wayland
     // compositors, which don't let a normal application see key events for
@@ -296,7 +280,7 @@ namespace
     /// subfolder of it (both relative to cwd, which ChdirToExecutableDir
     /// below already points at the executable's own directory). Not
     /// recursive - keeps this a simple flat picker rather than a full file
-    /// manager. New code, no C# equivalent (see RomSelector below).
+    /// manager. See RomSelector below.
     /// Extra directories to search, one per line, read from "./romdirs.cfg"
     /// next to the executable if that file exists - e.g. an existing
     /// RetroPie/EmulationStation ROM collection living elsewhere on disk,
@@ -352,10 +336,7 @@ namespace
     /// ScanForRoms() finds, navigated with the D-Pad and A/Start to load,
     /// B/Esc to cancel - reusing the same InputSource abstraction gameplay
     /// already uses (see AnySourceDown above), so it works from a gamepad
-    /// too, not just the keyboard. Not a port of anything: the C# original
-    /// only had a WinForms File > Open dialog (MainForm.cs), tied to
-    /// Windows/WinForms and not meaningfully portable as "the same class".
-    /// This struct only decides *which* path was picked; main() is the one
+    /// too, not just the keyboard.    /// This struct only decides *which* path was picked; main() is the one
     /// that actually stops/reloads/restarts the emulator (see SwitchRom()),
     /// since only it has access to the CPU thread.
     struct RomSelector
@@ -455,8 +436,7 @@ namespace
 {
     /// One toggleable debug window: owns its own cv window (created lazily
     /// on first show, torn down on hide/exit) and its "is it open" state -
-    /// mirrors the C# original's separate NameTable/PatternTable/CPUSpeedForm
-    /// windows, minus the WinForms plumbing.
+    /// used for the NameTable/PatternTable/CPU Speed windows.
     struct DebugWindow
     {
         std::string name;
@@ -487,19 +467,18 @@ namespace
     DebugWindow patternTableWindow("NES - Pattern Table");
     DebugWindow cpuSpeedWindow("NES - CPU Speed");
     DebugWindow memoryWindow("NES - Memory Viewer");
-    // NEW, no C# equivalent - see NES_PPU::OAMDebugOverlay()'s own comment
+    // See NES_PPU::OAMDebugOverlay()'s own comment
     // for what this shows. 'U' rather than an 'S'/'B' sprite-related
     // mnemonic because both collide with existing gameplay keys (S = Down
     // in the WASD D-pad scheme; B doesn't collide but reads as "press the
     // NES B button", which this isn't).
     DebugWindow oamWindow("NES - OAM Viewer");
     /// Palette number fed to NES_Console::getPatternTable(PN) - cycled with
-    /// 'O' while the pattern-table window is open. Matches PatternTable.cs's
-    /// button1_click, minus its 0..10 wraparound quirk (that range only ever
-    /// made sense against the C# form's own state, not this key binding).
+    /// 'O' while the pattern-table window is open. Wraps around
+    /// within the valid palette range.
     int patternTablePalette = 0;
 
-    /// NEW, no C# equivalent - user-requested save/load-state feature (see
+    /// User-requested save/load-state feature (see
     /// NES_SaveState's own comment). Selected with digit keys '1'-'9'
     /// (see HandleDebugKey()); 'Q'/'E' act on whichever slot this
     /// currently is. Starts at 1 rather than 0 so an accidental Q/E before
@@ -507,14 +486,14 @@ namespace
     /// rather than a slot number nobody chose on purpose.
     int saveStateSlot = 1;
 
-    /// NEW, no C# equivalent - the currently-loaded ROM's path, kept in
+    /// The currently-loaded ROM's path, kept in
     /// sync by main()/switchRom() below (there was previously no need to
     /// remember this past the initial NES_Console::LoadRom() call). Used
     /// only to name save-state files after the ROM they belong to (see
     /// SaveStatePath() below) - not read by anything gameplay-related.
     std::string currentRomPath;
 
-    /// NEW, no C# equivalent - see NES_SaveState's own comment. One file
+    /// See NES_SaveState's own comment. One file
     /// per (ROM, slot) pair, next to the executable (matching this port's
     /// existing "look next to the executable" convention - see
     /// ChdirToExecutableDir()) so slots from different games never collide
@@ -528,7 +507,7 @@ namespace
         return "./" + base + ".slot" + std::to_string(slot) + ".sav";
     }
 
-    // NEW, no C# equivalent - user-requested input record/playback feature,
+    // User-requested input record/playback feature,
     // added specifically to make headless bug investigation reliable: this
     // session's own synthetic auto-input (NES_AUTO_RIGHT_FRAME etc.) kept
     // producing subtly wrong in-game results compared to a real play
@@ -626,8 +605,7 @@ namespace
 
     /// Rolling history of NES_Console::getCPUSpeed() samples (nanoseconds
     /// per emulated CPU step - see CPU/CPU/NES_CPU.cpp's Sleep(), whose
-    /// FIXED note explains the unit) for the CPU-speed window's line chart,
-    /// replacing CPUSpeedForm.cs's WinForms Chart control.
+    /// FIXED note explains the unit) for the CPU-speed window's line chart,.
     std::deque<double> cpuSpeedHistory;
     constexpr size_t kCpuSpeedHistoryLen = 300;
 
@@ -673,8 +651,7 @@ namespace
         cv::imshow(cpuSpeedWindow.name, canvas);
     }
 
-    /// New tool, no C# equivalent (Extras/SaveLoadMemory.cs never had a live
-    /// viewer, only save/load) - a live hex dump of NES_Memory::Memory[],
+    /// A live hex dump of NES_Memory::Memory[],
     /// same toggleable-window pattern as NameTable/PatternTable/CPU Speed
     /// above. Reads via NES_Console::getMemoryByte() (AddressSetup::value(),
     /// unhooked), so merely looking at a page of memory never itself
@@ -819,7 +796,7 @@ namespace
             if (!remapState.Active() && !romSelector.Active())
                 romSelector.Open();
             break;
-        // NEW, no C# equivalent - user-requested speed control (see
+        // User-requested speed control (see
         // NES_CPU::speedMultiplier's own comment for the full story: PC
         // hardware is far faster than a real 6502, but this port's own
         // per-scanline rendering work is real computation, not an
@@ -837,7 +814,7 @@ namespace
         case '0':
             NES::NES_Console::setSpeedMultiplier(1.0);
             break;
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // User-requested save/load-state feature
         // (see NES_SaveState's own comment). Digits '1'-'9' just pick
         // *which* slot Q/E act on next - matching common emulator UX
         // (e.g. RetroArch's own numbered-slot-select convention) - '0'
@@ -859,9 +836,9 @@ namespace
 {
     /// Every default relative path in this port (NES_PPU_Palette's
     /// "./Palletes/2C03and2C05.bmp", this file's "./Galaga.nes") is relative
-    /// to the current working directory - exactly like the C# original's own
-    /// relative paths were, which only ever resolved because Windows starts
-    /// a double-clicked .exe with its own folder as the working directory.
+    /// to the current working directory - which only resolves reliably when the
+    /// launcher (e.g. Windows double-click) starts the .exe with its own
+    /// folder as the working directory.
     /// A terminal or file-manager "run" launch doesn't give that guarantee
     /// on Linux, so this chdir's into the executable's own directory first,
     /// restoring the behavior the original relied on regardless of how/from
@@ -1178,9 +1155,8 @@ int main(int argc, char** argv)
     // Stops the running CPU thread, loads a different ROM, and starts a
     // fresh thread on NES_Console::Restart() (not Run() - Restart() is the
     // one that re-homes PC at the reset vector and re-inits the PPU/APU
-    // registers, matching what a real console's RESET line does). New code,
-    // backing RomSelector above - the C# original never supported switching
-    // ROMs without relaunching the whole program.
+    // registers, matching what a real console's RESET line does). Backs
+    // RomSelector above, so ROMs can be switched without relaunching.
     auto switchRom = [&cpuThread](const std::string& path)
     {
         NES::NES_Console::Stop();
@@ -1717,7 +1693,7 @@ int main(int argc, char** argv)
                 else if (!remapState.Active() && !romSelector.Active())
                 {
                     HandleDebugKey(key);
-                    // NEW, no C# equivalent - user-requested save/load-state
+                    // User-requested save/load-state
                     // feature (see NES_SaveState's own comment). Handled
                     // here rather than inside HandleDebugKey() specifically
                     // because NES_SaveState::Save()/Load() touch live

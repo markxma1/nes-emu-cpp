@@ -140,8 +140,8 @@ namespace NES
     void NES_Memory::InitPPU()
     {
         // NOTE: mirrors only $2000-$2007 into $2008-$200F, not the full
-        // $2008-$3FFF range - this matches the original C# (NES-Memory.cs
-        // InitPPU), quirk and all.
+        // $2008-$3FFF range - this is a known quirk
+        // kept as-is.
         for (int i = 0x2000; i <= 0x2007; i++)
         {
             PPU.push_back(Memory[i]);

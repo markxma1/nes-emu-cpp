@@ -28,10 +28,9 @@ namespace NES
     /// bytes are currently visible to the CPU/PPU (and, for some boards,
     /// which physical nametable page the PPU currently shows).
     ///
-    /// New code, not a port of anything: the C# original never dispatched
-    /// on a mapper number at all - NES_ROM.cs always treated every ROM as
-    /// plain NROM (see NES_ROM.cpp's LEARNING NOTE, now fixed by this
-    /// folder). Each concrete mapper below (Mapper_NROM.h,
+    /// Earlier versions never dispatched on a mapper number at all and
+    /// always treated every ROM as plain NROM (see NES_ROM.cpp's LEARNING
+    /// NOTE, now fixed by this folder). Each concrete mapper below (Mapper_NROM.h,
     /// Mapper_MMC1.h, ...) is built fresh against its own cited nesdev page.
     ///
     /// http://wiki.nesdev.com/w/index.php/Mapper - background on what a
@@ -81,16 +80,14 @@ namespace NES
         /// NES_Console doesn't need to know or care which mappers actually
         /// use it.
         ///
-        /// UPDATE, no C# equivalent (this whole method is new code as of
-        /// the previous per-frame OnFrame() - see git history/this
-        /// project's own scanline-accurate-PPU redesign notes): this used
-        /// to be OnFrame(), called once per whole rendered frame right
+        /// UPDATE (see git history/this project's own scanline-accurate-PPU
+        /// redesign notes): this used to be OnFrame(), called once per whole rendered frame right
         /// before NES_PPU::Display() composited it - now called once per
         /// real scanline instead, since composing a frame is no longer a
         /// single end-of-frame snapshot (see NES_PPU::AdvanceDots()).
         virtual void OnScanline() {}
 
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // New: user-requested save/load-state feature
         // (see NES_SaveState's own comment for the full story). Most
         // mappers here (NROM/UxROM/CNROM/AxROM) have no persistent
         // bank-index state at all - WriteRegister() computes a bank offset

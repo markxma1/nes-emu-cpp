@@ -24,18 +24,17 @@
 namespace NES
 {
     /// @brief Resolves PPU palette RAM entries to actual RGB colors, using a
-    /// reference NES palette image as the 64-colour lookup table (exactly the
-    /// same trick the C# used - reading pixel values out of a small bitmap
-    /// instead of hand-typing 64 RGB triplets). Split across three files like
-    /// the C# partial class: NES_PPU_Palette.cs (this file), .Check.cs
-    /// (change tracking) and .Load.cs (the bitmap loader).
+    /// reference NES palette image as the 64-colour lookup table (reading
+    /// pixel values out of a small bitmap instead of hand-typing 64 RGB
+    /// triplets). Split across three source files: NES_PPU_Palette.cpp (this
+    /// class), .Check.cpp (change tracking) and .Load.cpp (the bitmap loader).
     /// http://wiki.nesdev.com/w/index.php/PPU_palettes
     class NES_PPU_Palette
     {
     public:
         static std::array<NES_PPU::Color, 0x40> PPUpalettes;
 
-        /// `bmpPath` defaults to the same relative path the C# original used
+        /// `bmpPath` defaults to the relative path of the bundled palette image
         /// ("./Palletes/2C03and2C05.bmp", i.e. next to the running executable).
         explicit NES_PPU_Palette(const std::string& bmpPath = "./Palletes/2C03and2C05.bmp");
 
@@ -45,7 +44,7 @@ namespace NES
         static NES_PPU_Color getSpriteColorPalette(int start);
         static NES_PPU::Color UniversalBackgroundColor();
 
-        // --- NES_PPU_Palette.Check.cs ---
+        // --- NES_PPU_Palette.Check.cpp ---
         static bool BGIsNew(int start);
         static bool SpriteIsNew(int start);
         static void setAllPaletesAsOld();
@@ -58,7 +57,7 @@ namespace NES
         static NES_PPU::Color getColorAsRGB(int Adress);
         static int OctToHex(int a);
 
-        // --- NES_PPU_Palette.Load.cs ---
+        // --- NES_PPU_Palette.Load.cpp ---
         static void InitPalletesFromBMP(const std::string& path);
         static void LoadPallete(const cv::Mat& palette);
         static void LoadRow(const cv::Mat& palette, int j);

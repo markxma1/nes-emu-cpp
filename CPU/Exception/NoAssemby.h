@@ -19,8 +19,8 @@
 
 namespace NES
 {
-    /// @brief Thrown for an unimplemented/illegal opcode. Port of CPU/Exception/NoAssemby.cs.
-    /// Class name (including the "NoAssemby" typo) kept identical to the C# original.
+    /// @brief Thrown for an unimplemented/illegal opcode.
+    /// Note: the class name contains the "NoAssemby" typo.
     class NoAssemby : public std::runtime_error
     {
     public:

@@ -26,7 +26,7 @@
 
 namespace NES
 {
-    // FIXED (was a preserved C# bug, now corrected - found live via Chip 'n
+    // FIXED (found live via Chip 'n
     // Dale still corrupting its MMC1 shift register/scheduler state even
     // after this session's separate NES_Console::RenderFrame() fix moved
     // frame composition onto the CPU thread's own real-cycle-driven cadence
@@ -84,12 +84,11 @@ namespace NES
 
     NES_PPU_Register::NES_PPU_Register()
     {
-        // The C# original set OAMADDR/OAMDATA/PPUSCROLL/PPUADDR/PPUDATA/OAMDMA
-        // via static field initializers (running at type-init time, relying on
-        // NES_Memory already being constructed). C++ has no equivalent
-        // ordering guarantee across translation units, so those become
-        // explicit INIT methods here, run from this constructor - same as
-        // PPUCTRL/PPUMASK/PPUSTATUS already were in the C#.
+        // OAMADDR/OAMDATA/PPUSCROLL/PPUADDR/PPUDATA/OAMDMA can't rely on
+        // static field initializers, since C++ has no initialization-order
+        // guarantee across translation units (they need NES_Memory already
+        // constructed). So they are set up by explicit INIT methods, run
+        // from this constructor - same as PPUCTRL/PPUMASK/PPUSTATUS.
         INITOAMADDR();
         INITOAMDATA();
         INITPPUSCROLL();
@@ -115,7 +114,7 @@ namespace NES
         PPUMASK.adress = NES_Memory::Memory[0x2001];
     }
 
-    // FIXED (was a preserved C# bug, now corrected - the deeper root cause
+    // FIXED (the deeper root cause
     // behind the same Lion King/AxROM segfault INITPPUDATA()'s own FIXED
     // note below describes): per http://wiki.nesdev.com/w/index.php/PPU_scrolling,
     // $2006's internal address latch is only 14 bits ($0000-$3FFF) - real
@@ -130,7 +129,7 @@ namespace NES
     // already out of range *before* a single $2007 access ever happened -
     // this is the actual source of the value, so it needs its own mask.
     //
-    // FIXED (new design, not a C# port - see INITPPUSTATUS()'s own FIXED
+    // FIXED (new design - see INITPPUSTATUS()'s own FIXED
     // note for the bug this closes, part of the same fix): this used to
     // treat *every* $2006 write identically - "shift PPUPCADDR left 8 and
     // OR in the new byte" - with no concept of "which of the two writes is
@@ -216,7 +215,7 @@ namespace NES
         OAMDMA->AfterSet([](uint8_t value) { NES_PPU_OAM::OAMDMA(value); });
     }
 
-    // FIXED (was a preserved C# bug, now corrected - a real segfault, found
+    // FIXED (a real segfault, found
     // live via The Lion King/AxROM once the NMI-reentrancy fix in
     // NES.Memory/Interrupt.cpp let it actually run far enough to hit this):
     // per http://wiki.nesdev.com/w/index.php/PPU_scrolling, the PPU's VRAM
@@ -229,8 +228,7 @@ namespace NES
     // the lucky case where a write happened to land exactly on the
     // boundary; any overshoot left PPUPCADDR pointing past
     // NES_PPU_Memory::Memory's actual size, and indexing it via operator[]
-    // (no bounds check, unlike C#'s safe IndexOutOfRangeException - see
-    // this port's other "vector isn't C#'s array" fixes) segfaulted on the
+    // (no bounds check) segfaulted on the
     // very next $2007 access. Fixed by masking to 14 bits (real hardware's
     // actual wraparound), which also degrades gracefully back to the old
     // exact-$4000 behavior for the common +1 case.
@@ -280,7 +278,7 @@ namespace NES
         });
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found live via Chip 'n
+    // FIXED (found live via Chip 'n
     // Dale continuing to desync its background from its own (correct)
     // collision map during horizontal scrolling even after this session's
     // separate per-scanline rendering fix - see NES_PPU::RenderBackgroundScanline()'s

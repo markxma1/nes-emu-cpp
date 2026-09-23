@@ -66,7 +66,7 @@ namespace NES
         ApplyChrBanks();
     }
 
-    // FIXED (new design, not a C# port or a real-hardware behavior - a
+    // FIXED (new design, not a real-hardware behavior - a
     // deliberate, documented deviation from strict hardware fidelity; see
     // Interrupt::SuppressNMI()'s own comment for the full story): a save
     // state captured live from Chip and Dale reproduced a residual
@@ -144,7 +144,7 @@ namespace NES
         ApplyPrgBanks();
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found live while
+    // FIXED (found live while
     // investigating Chip and Dale's background-doesn't-match-the-real-level
     // bug, and confirmed against real documentation before touching it, per
     // this project's own standing rule): per

@@ -25,7 +25,7 @@ namespace NES
 {
     NES_PPU::Picture NES_PPU::TempNameTable(64 * 8, 60 * 8);
 
-    // FIXED (was a preserved C# bug, now corrected - found via real
+    // FIXED (found via real
     // interactive play, "Mario shows but there's no background at all",
     // confirmed with NES_TRACE_PC catching Super Mario Bros mid-frame with
     // PPUMASK.b=1 (background rendering genuinely enabled) but
@@ -104,7 +104,7 @@ namespace NES
         return TempNameTable;
     }
 
-    // FIXED (was a preserved C# bug, now corrected - the "solid black
+    // FIXED (the "solid black
     // screen except for a thin red/green border" corruption found while
     // testing real commercial ROMs, e.g. Contra/UxROM, once the PPUCTRL.V()
     // gating bug in Display() was fixed and frames actually started
@@ -274,9 +274,7 @@ namespace NES
 
     void NES_PPU::DrowOneNameTable(Picture& image, const std::vector<int>& Attribute, int Nr, uint16_t X, uint16_t Y)
     {
-        // FIXED (was a preserved C# bug, now corrected per explicit user
-        // request to fix the analyzed bugs one at a time): the C# original
-        // (NES_PPU/NES_PPU_Folder/NES_PPU.NameTable.cs DrowOneNameTable) did
+        // FIXED: this used to do
         // `Parallel.For(X, X + 30 - 1, ...)`, a toExclusive of X+29, so the
         // loop variable only ever reached X+28 - one row short of the 30
         // tile rows a name table actually has

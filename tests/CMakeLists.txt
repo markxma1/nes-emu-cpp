@@ -86,8 +86,7 @@ add_custom_command(TARGET cpu_check POST_BUILD
 
 add_test(NAME cpu_check COMMAND cpu_check)
 
-# NEW, no C# equivalent - this whole codebase (matching the C# original's
-# own design) leans on permanent static/global singletons
+# This whole codebase leans on permanent static/global singletons
 # (NES_Memory::Memory, NES_PPU_Memory::*, ...) that are never explicitly
 # torn down before process exit - fine for a program that only ever exits
 # by the process ending, but LeakSanitizer (bundled with AddressSanitizer)

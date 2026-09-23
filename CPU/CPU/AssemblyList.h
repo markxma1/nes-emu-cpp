@@ -25,7 +25,7 @@ namespace NES
     /// @brief The 6502 opcode dispatch table: maps each opcode byte to a
     /// wrapper that reads its operand bytes (if any) from memory, advances PC
     /// past them, and calls the matching Assembly_6502 instruction.
-    /// Port of CPU/CPU/AssemblyList.cs. See https://en.wikibooks.org/wiki/6502_Assembly
+    /// See https://en.wikibooks.org/wiki/6502_Assembly
     /// and http://nesdev.com/6502.txt for the opcode table this mirrors.
     class AssemblyList
     {

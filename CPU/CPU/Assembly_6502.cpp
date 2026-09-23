@@ -75,17 +75,17 @@ namespace NES
     void Assembly_6502::ADC_69(uint8_t v) { NES_Register::A = Math::ADC(NES_Register::A, v); }
     void Assembly_6502::ADC_65(uint8_t zp) { NES_Register::A = Math::ADC(NES_Register::A, NES_Memory::Memory[zp]->Value()); }
     void Assembly_6502::ADC_61(uint8_t zpx) { NES_Register::A = Math::ADC(NES_Register::A, NES_Memory::Memory[Parameter::zpx1(zpx)]->Value()); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
-    // the C# original (Assembly_6502.cs ADC_75) called Parameter.zpy2(zpx)
+    // FIXED (found via nestest.nes):
+    // this previously called Parameter.zpy2(zpx)
     // instead of zpx2(zpx) - opcode $75 ("ADC zp,X") was adding Y instead of
     // X to the zero-page address.
     void Assembly_6502::ADC_75(uint8_t zpx) { NES_Register::A = Math::ADC(NES_Register::A, NES_Memory::Memory[Parameter::zpx2(zpx)]->Value()); }
     void Assembly_6502::ADC_71(uint8_t zpy) { NES_Register::A = Math::ADC(NES_Register::A, NES_Memory::Memory[Parameter::zpy1(zpy)]->Value()); }
 
     void Assembly_6502::SBC_ED(uint16_t a) { NES_Register::A = Math::SBC(NES_Register::A, NES_Memory::Memory[a]->Value()); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes,
-    // same bug class as ADC_75/ROR_76 above): the C# original
-    // (Assembly_6502.cs SBC_FD) called Parameter.ay(ax) instead of ax(ax) -
+    // FIXED (found via nestest.nes,
+    // same bug class as ADC_75/ROR_76 above): this previously
+    // called Parameter.ay(ax) instead of ax(ax) -
     // opcode $FD ("SBC abs,X") was adding Y instead of X.
     void Assembly_6502::SBC_FD(uint16_t ax) { NES_Register::A = Math::SBC(NES_Register::A, NES_Memory::Memory[Parameter::ax(ax)]->Value()); }
     void Assembly_6502::SBC_F9(uint16_t ay) { NES_Register::A = Math::SBC(NES_Register::A, NES_Memory::Memory[Parameter::ay(ay)]->Value()); }
@@ -138,12 +138,11 @@ namespace NES
     void Assembly_6502::ROR_6E(uint16_t a) { Math::ROR(a); }
     void Assembly_6502::ROR_7E(uint16_t ax) { Math::ROR(Parameter::ax(ax)); }
     void Assembly_6502::ROR_6A() { Math::ROR(); }
-    // C# original calls Math.ROR(zp) directly (no Parameter.zp() wrapper) - kept
-    // as-is; Parameter::zp() is the identity function, so this is equivalent.
+    // Calls Math::ROR(zp) directly (no Parameter::zp() wrapper);
+    // Parameter::zp() is the identity function, so this is equivalent.
     void Assembly_6502::ROR_66(uint8_t zp) { Math::ROR(zp); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes,
-    // same bug class as ADC_75 above): the C# original (Assembly_6502.cs
-    // ROR_76) called Parameter.zpy2(zpx) instead of zpx2(zpx) - opcode $76
+    // FIXED (found via nestest.nes,
+    // same bug class as ADC_75 above): this previously called Parameter.zpy2(zpx) instead of zpx2(zpx) - opcode $76
     // ("ROR zp,X") was adding Y instead of X.
     void Assembly_6502::ROR_76(uint8_t zpx) { Math::ROR(Parameter::zpx2(zpx)); }
 
@@ -207,12 +206,12 @@ namespace NES
     void Assembly_6502::BMI_30(int8_t r) { if (NES_Register::P.Negative()) Math::Branch(r); }
     void Assembly_6502::BNE_D0(int8_t r) { if (!NES_Register::P.Zero()) Math::Branch(r); }
     void Assembly_6502::BPL_10(int8_t r) { if (!NES_Register::P.Negative()) Math::Branch(r); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes,
+    // FIXED (found via nestest.nes,
     // the standard 6502 core-conformance ROM: this port's CPU trace matched
     // nestest.log's expected register/flag state exactly for the first 39
     // instructions, then diverged in PC only, at the very first BVS in the
-    // test - see tests/nestest). The C# original (Assembly_6502.cs
-    // BVC_50/BVS_70) tested the Carry flag instead of Overflow, despite
+    // test - see tests/nestest). BVC_50/BVS_70 previously
+    // tested the Carry flag instead of Overflow, despite
     // being BVC/BVS ("Branch on oVerflow Clear/Set" -
     // http://wiki.nesdev.com/w/index.php/Status_flags). BIT+BVS/BVC (test a
     // memory byte's bit 6 via BIT, then branch on it) is one of the most
@@ -239,8 +238,8 @@ namespace NES
     // ---- Stack ----
 
     void Assembly_6502::PHA_48() { Stack::PushToStack(NES_Register::A); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
-    // the C# original (Assembly_6502.cs PLA_68) never updated the N/Z flags
+    // FIXED (found via nestest.nes):
+    // PLA_68 previously never updated the N/Z flags
     // from the popped value despite its own doc comment above ("Flags: N,
     // Z") and http://www.masswerk.at/6502/6502_instruction_set.html#PLA
     // agreeing PLA sets both - it just assigned A and stopped. Fixed by
@@ -257,7 +256,7 @@ namespace NES
 
     void Assembly_6502::JSR_20(uint16_t a) { Stack::PcToStack(); NES_Register::PC = a; }
     void Assembly_6502::RTS_60() { Stack::StackToPc(); }
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes,
+    // FIXED (found via nestest.nes,
     // together with the matching push-order fix in Interrupt::ReplacePC):
     // pops in the real 6502 order (flags first, then PC - see
     // ReplacePC's NOTE) and, per Stack::StackToPc's NOTE, without RTS's `+1`

@@ -34,9 +34,8 @@ namespace NES
         InitOutput4016();
     }
 
-    // FIXED (was a preserved C# bug, now corrected per explicit user request
-    // to make the controller actually work): the C# original (NES.Controller/
-    // Controller/NES_GamePad.cs InitInput4016/InitOutput4016) indexed
+    // FIXED (to make the controller actually work): InitInput4016/InitOutput4016
+    // previously indexed
     // `NES_Memory::Memory` with the *decimal* literal 4016 (= $0FB0, a
     // mirrored zero-page/RAM cell - see NES_Memory::InitMemory's $0800-$0FFF
     // mirror block) instead of the controller port address $4016 (= decimal
@@ -62,7 +61,7 @@ namespace NES
         output4016.address->AfterGet([]() { output4016.address->value(0); });
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found while
+    // FIXED (found while
     // investigating why several real commercial ROMs across multiple
     // mappers - Contra/UxROM, Chip 'n Dale/MMC1, Batman III/MMC3, The Lion
     // King/AxROM - never progressed past their title screen even with a
@@ -74,9 +73,8 @@ namespace NES
     // reloaded from the button states ... reading $4016 ... will
     // continuously return the current state of the first button" A), and
     // only stops reloading - starts actually shifting through the other 7
-    // buttons one per read - once strobe goes low. Neither this port nor
-    // the C# original (NES.Controller/Controller/NES_GamePad.cs getButton())
-    // ever consulted the strobe bit at all - P1BID just free-ran, advancing
+    // buttons one per read - once strobe goes low. getButton() previously
+    // never consulted the strobe bit at all - P1BID just free-ran, advancing
     // on *every* read regardless of strobe, forever. A single full "strobe
     // high-then-low, then read all 8 buttons" poll happens to still work by
     // coincidence (any 8 consecutive reads land back on a multiple of 8, so

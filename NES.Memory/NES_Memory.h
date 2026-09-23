@@ -23,7 +23,7 @@
 
 namespace NES
 {
-    /// @brief The NES's full 64KB CPU address space. Port of NES.Memory/NES-Memory.cs.
+    /// @brief The NES's full 64KB CPU address space.
     ///
     /// Address Range (Hex)   Size    Notes (page size is 256 bytes)
     /// $0000-$00FF  256 B   Zero Page - fast Zero Page addressing modes
@@ -42,8 +42,8 @@ namespace NES
     /// See http://wiki.nesdev.com/w/index.php/CPU_memory_map
     ///
     /// `Memory` holds one AddressSetup per address, shared (aliased) across
-    /// mirrored ranges - exactly like the C# version aliased the same
-    /// AddressSetup object reference into multiple ArrayList slots, so a
+    /// mirrored ranges - by aliasing the same
+    /// AddressSetup object into multiple slots, so a
     /// write through any mirror is visible through all of them.
     class NES_Memory
     {

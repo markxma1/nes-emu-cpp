@@ -25,10 +25,9 @@ namespace NES
 {
     /// @brief Loads a .nes (iNES) ROM file and hands its PRG-ROM/CHR-ROM
     /// data to the right Mapper (see the Mappers/ folder) for the header's
-    /// declared mapper number. Port of NES.Console/NES_ROM.cs, extended
-    /// with real mapper dispatch - the C# original always treated every ROM
-    /// as plain NROM (mapper 0) regardless of what its header actually
-    /// declared. http://wiki.nesdev.com/w/index.php/INES
+    /// declared mapper number. Every ROM is dispatched
+    /// by its header's declared mapper number, rather than being treated as
+    /// plain NROM (mapper 0) regardless. http://wiki.nesdev.com/w/index.php/INES
     class NES_ROM
     {
     public:
@@ -41,7 +40,7 @@ namespace NES
         /// only LoadRom() ever replaces/destroys it.
         static Mapper* CurrentMapper() { return currentMapper.get(); }
 
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // User-requested save/load-state feature
         // (see NES_SaveState's own comment). A cheap identity check so
         // NES_SaveState::Load() can refuse a save file that was made under
         // a *different* ROM - loading Chip and Dale state into Tetris

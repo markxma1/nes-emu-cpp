@@ -1,9 +1,10 @@
 # nes-emu-cpp
 
-A C++ port of a personal NES (Nintendo Entertainment System) emulator originally
-written in C# as a learning project. The goal of both the original and this port
-is **understanding real NES hardware**, not just playing games - so the code is
-written and commented to be read, not just run.
+A C++ NES (Nintendo Entertainment System) emulator written as a learning
+project. The goal is **understanding real NES hardware**, not just playing
+games - so the code is written and commented to be read, not just run.
+Priorities, in order: understandability, clarity of structure, and working
+code (examples and tests must actually run).
 
 If you're new to emulator development, this file is meant to be your entry
 point: where to start reading, how the pieces fit together, and - probably the
@@ -13,14 +14,12 @@ fixed in this exact codebase.
 
 ## What this is (and isn't)
 
-- A **cycle-approximate**, not cycle-accurate, NES emulator. There is no
-  per-scanline/per-dot PPU clock (see "Known structural simplifications"
-  below) - rendering happens once per displayed frame, not pixel-by-pixel as
-  the beam would sweep across a real CRT.
-- A **1:1 structural port** of the C# original for all hardware-modeling code
-  (CPU, PPU, Memory, Mapper, addressing, controller). Only the UI shell
-  (`NES/main.cpp`) and the software-framebuffer class (`ClassLibrary1/Picture`)
-  are allowed to differ from the C# original, since neither models hardware.
+- A **scanline-accurate**, not fully cycle-accurate, NES emulator (see "Known
+  structural simplifications" below).
+- Structured so each hardware part (CPU, PPU, Memory, Mapper, addressing,
+  controller) lives in its own folder, separate from the UI shell
+  (`NES/main.cpp`) and the software-framebuffer class (`ClassLibrary1/Picture`),
+  which model no hardware.
 - Verified against [`tests/nestest`](tests/nestest), the standard 6502 CPU
   conformance test ROM - see "How to verify CPU correctness yourself" below.
 
@@ -67,8 +66,7 @@ Read in this order; each step assumes you understood the previous one.
 9. **`NES.Controller/Controller/NES_GamePad.h/.cpp`** - the controller
    read protocol (shift register + strobe bit).
 10. **`NES/main.cpp`** - the UI shell (OpenCV window, keyboard input, the
-    three debug windows). This is the *only* file with no C# equivalent to
-    mirror - read it last, since it's plumbing, not hardware.
+    three debug windows). Read it last, since it's plumbing, not hardware.
 
 `NES.Console/NES_Console.h/.cpp` is the thin glue layer wiring 1-9 together
 and exposing the handful of entry points `main.cpp` needs
@@ -77,13 +75,11 @@ of "what talks to what", even before you've read the pieces it wires up.
 
 ## Hardware gotchas: things this codebase got wrong at least once
 
-Every item below was a **real bug found in this exact code** (inherited
-verbatim from the 2016 C# original, which never wired up real keyboard input
-and so never actually got tested against a real game). They're listed here
+Every item below was a **real bug found in this exact code** (in an early
+version that had never been tested against a real game). They're listed here
 because each one is a genuinely easy mistake to make when implementing a
 6502/NES emulator from the spec sheet alone, not something specific to this
-codebase's quirks. Each is also documented in-place with a `// FIXED (was a
-preserved C# bug, now corrected): ...` comment and a nesdev.org link at its
+codebase's quirks. Each is also documented in-place with a `// FIXED ...` comment and a nesdev.org link at its
 actual location, cited below - read those for the full explanation and the
 exact fix.
 
@@ -129,9 +125,8 @@ exact fix.
   artifacts of what gets written to the *stack* by `PHP`/`BRK`, and are
   discarded (not restored) when `PLP`/`RTI` pull flags back. `Stack::
   StackToProcessorstatus`.
-- **OAM DMA is a byte-*value* copy**, not a reference/alias - in a language
-  with reference-typed "memory cell" objects (C#'s classes, or here,
-  `shared_ptr`), it's easy to accidentally alias the source instead of
+- **OAM DMA is a byte-*value* copy**, not a reference/alias - when memory
+  cells are reference-typed objects (here, `shared_ptr`), it's easy to accidentally alias the source instead of
   copying it, silently turning "OAM" into a live view of whatever the CPU
   writes to that RAM page next. `NES_PPU_OAM::OAMDMA`.
 - **PPUSTATUS's vblank flag sets every single vblank, unconditionally** -
@@ -202,25 +197,18 @@ this stops passing, that's your bug, found before it ever reaches a game ROM.
 - **CPU timing is instruction-count-based, not cycle-count-based** - see
   `NES_CPU::SleepTime`'s own `// NOTE:` for the specific consequence.
 
-## Preserved-vs-fixed bugs: reading the comments
+## Reading the comments
 
-Two comment styles appear throughout the hardware-modeling code, and the
-distinction matters:
+Two comment styles appear throughout the hardware-modeling code:
 
-- `// NOTE: preserved from the C# original ...` - a bug (or an
-  intentionally-still-inherited-but-real quirk) that's kept **verbatim** on
-  purpose, because the porting brief for this project is "structurally
-  identical to the C# original for anything modeling hardware" - don't
-  "fix" these without checking with whoever owns the project first.
-- `// FIXED (was a preserved C# bug, now corrected): ...` - a bug that
-  *was* preserved this way at some point, but has since been deliberately
-  fixed once root-caused with real documentation evidence (nesdev.org links
-  are attached). These record what was wrong and why, so the reasoning
-  survives even after the bug doesn't.
+- `// NOTE: ...` - a known simplification or quirk that is kept on purpose,
+  with the reason given.
+- `// FIXED ...` - a bug that was root-caused with real documentation
+  evidence (nesdev.org links are attached). These record what was wrong and
+  why, so the reasoning survives even after the bug doesn't.
 
-`ClassLibrary1/Picture` is the one exception to all of this: it has no C#
-equivalent (`System.Drawing.Bitmap` doesn't exist in C++), models no
-hardware, and is explicitly free to differ - see its own class-level comment.
+`ClassLibrary1/Picture` models no hardware; it is just a software
+framebuffer - see its own class-level comment.
 
 ## Reference documentation
 
@@ -238,8 +226,7 @@ hardware, and is explicitly free to differ - see its own class-level comment.
 
 ## License
 
-This project - both this C++ port and the original C# emulator it's ported
-from - is licensed under the **GNU General Public License v3.0**. The full,
+This project is licensed under the **GNU General Public License v3.0**. The full,
 verbatim license text is in [`LICENSE`](LICENSE); every source file also
 carries its own copyright/license header at the top, so the terms travel
 with the code even if a single file gets copied out on its own.

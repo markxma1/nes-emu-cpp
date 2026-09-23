@@ -13,7 +13,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# NEW, no C# equivalent - opt-in sanitizer support, added after this
+# Opt-in sanitizer support, added after this
 # project's own history of exactly the two bug classes these catch: real
 # out-of-bounds crashes (PPUPCADDR growing past NES_PPU_Memory::Memory's
 # bounds and indexing a vector via operator[] - see
@@ -37,12 +37,10 @@ endif()
 find_package(OpenCV REQUIRED)
 find_package(SDL2 REQUIRED)
 
-# Flat include list: the C# solution had one project per folder and the
-# ported .cpp/.h files #include each other by bare filename (occasionally
-# via an explicit "../Folder/..." path) rather than through a nested
-# namespace of paths, so every source folder needs to be on the include
-# path directly - mirrors how the original Visual Studio solution's
-# per-project references worked.
+# Flat include list: the .cpp/.h files #include each other by bare filename
+# (occasionally via an explicit "../Folder/..." path) rather than through a
+# nested namespace of paths, so every source folder needs to be on the
+# include path directly.
 set(NES_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/NES.Memory
     ${CMAKE_SOURCE_DIR}/CPU/CPU
@@ -88,9 +86,8 @@ target_link_libraries(nes-emu PRIVATE ${OpenCV_LIBS} ${SDL2_LIBRARIES} pthread)
 
 # NES_PPU_Palette's default bitmap path ("./Palletes/2C03and2C05.bmp") and
 # main.cpp's default ROM path are both relative to the working directory,
-# matching the C# original's own relative paths (NES_PPU_Palette.cs,
-# MainForm.cs Load_Click) - copy the palette asset next to the built binary
-# so the default path resolves the same way when run from the build dir.
+# so copy the palette asset next to the built binary; the default path then
+# resolves when run from the build dir.
 add_custom_command(TARGET nes-emu POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/NES_PPU/Palette/Palletes

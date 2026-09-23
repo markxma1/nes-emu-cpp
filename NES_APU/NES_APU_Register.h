@@ -21,8 +21,7 @@ namespace NES
     /// @brief Wires $4000-$4013/$4015/$4017 to NES_APU via
     /// AddressSetup::AfterSet/BeforGet - the same memory-mapped-I/O hook
     /// pattern NES_PPU_Register.cpp uses for the PPU's registers (see
-    /// NES.Memory/AddressSetup.h). New code (no C# original had an APU to
-    /// register); constructed once from NES_Console::INIT(), same as
+    /// NES.Memory/AddressSetup.h). Constructed once from NES_Console::INIT(), same as
     /// NES_PPU_Register.
     class NES_APU_Register
     {

@@ -30,9 +30,8 @@ namespace NES
         NES_PPU_OAM oamInit;
         NES_PPU_Memory memoryInit;
         NES_PPU_Palette paletteInit;
-        // The C# original also did `new NES_PPU_AttributeTable();` here, but
-        // that class (both in the C# and this port) has no constructor doing
-        // anything observable - a no-op, nothing to instantiate.
+        // NES_PPU_AttributeTable is not instantiated here: it has no
+        // constructor doing anything observable, so there is nothing to do.
     }
 
     NES_PPU::Picture NES_PPU::PaletteTable()

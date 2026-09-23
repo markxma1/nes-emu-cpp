@@ -24,8 +24,7 @@ namespace NES
 {
     using AddrVec = std::vector<std::shared_ptr<AddressSetup>>;
 
-    /// @brief The PPU's 16KB video address space ($0000-$3FFF). Port of
-    /// NES_PPU/Memory/NES_PPU_Memory.cs.
+    /// @brief The PPU's 16KB video address space ($0000-$3FFF).
     /// https://en.wikibooks.org/wiki/NES_Programming/Memory_Map
     /// http://wiki.nesdev.com/w/index.php/PPU_memory_map
     ///
@@ -70,7 +69,7 @@ namespace NES
         /// wasn't.
         static void RewireNameTableMirroring();
 
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // New: user-requested save/load-state feature
         // (see NES_SaveState's own comment). Public specifically for that -
         // a save must capture all 4 *physical* banks regardless of which
         // ones are currently aliased into the logical NameTableN/
@@ -101,7 +100,7 @@ namespace NES
 
         static void CreateMemory();
         static void UpdateMemory();
-        /// Mirrors memory addresses; matches NES-Memory.cs's mirroring approach
+        /// Mirrors memory addresses; uses the same mirroring approach as NES_Memory
         /// (aliasing the same AddressSetup into every mirrored slot).
         static void MemoryMirror(int i);
     };

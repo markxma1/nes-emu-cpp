@@ -25,12 +25,8 @@
 namespace NES
 {
     /// @brief Top-level wiring: constructs the CPU/PPU/Memory/Controller and
-    /// exposes the handful of entry points the UI needs. Port of
-    /// NES.Console/NES_Console.cs.
-    ///
-    /// SaveGame/LoadGame (Extras/SaveLoadMemory.cs) are not ported yet - out
-    /// of scope for this first "core" pass, same bucket as the debug tool
-    /// windows (Monitor/NameTable/PatternTable/CPUSpeed forms).
+    /// exposes the handful of entry points the UI needs.
+    /// Saving/loading emulation state lives in NES_SaveState.
     class NES_Console
     {
     public:
@@ -42,7 +38,7 @@ namespace NES
         static void Restart();
         static void Stop();
 
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // User-requested save/load-state feature
         // (see NES_SaveState's own comment). Resumes the CPU instruction
         // loop exactly as-is, unlike Run()/Restart() (both of which
         // reinitialize registers/PPU/APU state first - a real power-on or
@@ -56,7 +52,7 @@ namespace NES
         // immediately overwrite it.
         static void Resume();
 
-        // NEW, no C# equivalent - see RenderFrame()'s own comment for the
+        // See RenderFrame()'s own comment for the
         // full story (this is the fix for the Chip and Dale MMC1
         // shift-register corruption bug, and the deferred-as-out-of-scope
         // PPUSTATUS cross-thread race): composes exactly one real emulated
@@ -75,7 +71,7 @@ namespace NES
         static NES_PPU::Picture getDisplay(bool display = true);
         static NES_PPU::Color getUniversalBackgroundColor();
 
-        // NEW, no C# equivalent - same producer (CPU thread, RenderFrame())/
+        // Same producer (CPU thread, RenderFrame())/
         // consumer (UI thread) hand-off as getNameTabeleDebugOverlay(), for
         // the same reason (see NES_PPU::OAMDebugOverlay()'s own comment for
         // what this shows and why): a plain read of live OAM state from the
@@ -84,7 +80,7 @@ namespace NES
         // already fixed once for the Name Table window.
         static NES_PPU::Picture getOAMDebugOverlay();
 
-        // NEW, no C# equivalent - see RenderFrame()'s own comment on
+        // See RenderFrame()'s own comment on
         // nameTableDebugWindowVisible/latestNameTableDebugOverlay for the
         // full story (a real, TSan-confirmed data race: the debug Name
         // Table window used to call straight into NES_PPU::NameTabele(),
@@ -96,7 +92,7 @@ namespace NES
         // snapshot this frame.
         static void setNameTableDebugWindowVisible(bool visible);
 
-        // NEW, no C# equivalent - same purpose as
+        // Same purpose as
         // setNameTableDebugWindowVisible() above, for the OAM Viewer debug
         // window (see NES_PPU::OAMDebugOverlay()'s own comment).
         static void setOAMDebugWindowVisible(bool visible);
@@ -105,11 +101,11 @@ namespace NES
 
         static double getCPUSpeed();
 
-        // NEW, no C# equivalent - real, measured frames/second, see
+        // Real, measured frames/second, see
         // NES_CPU::measuredFPS's own comment.
         static double getMeasuredFPS();
 
-        // NEW, no C# equivalent - user-requested speed control, see
+        // User-requested speed control, see
         // NES_CPU::speedMultiplier's own comment for the full story.
         // setSpeedMultiplier() clamps into
         // [NES_CPU::kMinSpeedMultiplier, NES_CPU::kMaxSpeedMultiplier] so a
@@ -129,7 +125,7 @@ namespace NES
         static uint8_t getMemoryByte(uint16_t address);
 
     private:
-        // NEW, no C# equivalent - the only piece of state the CPU thread
+        // The only piece of state the CPU thread
         // (RenderFrame(), called from NES_CPU::Run()) and the UI thread
         // (getDisplay(), called from NES/main.cpp's render loop) still need
         // to hand off between each other after this session's cycle-accurate
@@ -143,7 +139,7 @@ namespace NES
         static std::mutex frameMutex;
         static NES_PPU::Picture latestFrame;
 
-        // NEW, no C# equivalent - same producer/consumer hand-off pattern
+        // Same producer/consumer hand-off pattern
         // as latestFrame/frameMutex above, added for the debug Name Table
         // window specifically (see RenderFrame()'s own comment). `atomic`
         // rather than needing frameMutex to read/write, since it's just a
@@ -152,7 +148,7 @@ namespace NES
         static std::atomic<bool> nameTableDebugWindowVisible;
         static NES_PPU::Picture latestNameTableDebugOverlay;
 
-        // NEW, no C# equivalent - same hand-off pattern as
+        // Same hand-off pattern as
         // nameTableDebugWindowVisible/latestNameTableDebugOverlay above,
         // for the OAM Viewer debug window.
         static std::atomic<bool> oamDebugWindowVisible;

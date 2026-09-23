@@ -28,13 +28,12 @@ namespace NES
         PushToStack(PStack.P);
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
+    // FIXED (found via nestest.nes):
     // per http://wiki.nesdev.com/w/index.php/Status_flags, bits 4 (B) and 5
     // (unused) "do not represent a register that can hold a value" - the
     // real 6502 has no physical flip-flop for either, so PLP/RTI "ignored
     // when pulling flags from the stack; there are no corresponding
-    // registers for them in the CPU". The C# original (NES.Memory/Stack.cs
-    // StackToProcessorstatus) copied the popped byte's bits 4/5 straight
+    // registers for them in the CPU". The previous version copied the popped byte's bits 4/5 straight
     // into P.P instead, so e.g. `PHA; PLP` (pushing an arbitrary value, then
     // popping it as if it were flags - exactly what nestest.nes's PLP test
     // does) would leave a phantom B flag set depending on that value's bit
@@ -56,7 +55,7 @@ namespace NES
         PushToStack(static_cast<uint8_t>(NES_Register::PC));
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
+    // FIXED (found via nestest.nes):
     // RTS_60 and RTI_40 both called this unconditionally applying the `+1`
     // that only RTS needs. JSR pushes `return_address - 1` (see
     // PcToStack()'s own `PC--`), so RTS must add 1 back; a BRK/IRQ/NMI push

@@ -19,11 +19,11 @@
 
 namespace NES
 {
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
+    // FIXED (found via nestest.nes):
     // Negative only ever looks at bit 7, so it's truncation-agnostic
     // regardless of whether `number` is a plain 0-255 byte or (from
     // Math::ADC/SBC) a raw pre-truncation sum that can reach 9 bits - but
-    // the C# original (CPU/CPU/Status.cs NZ) compared the whole untruncated
+    // this previously compared the whole untruncated
     // `number` to 0 for Zero, so e.g. 0x7F + 0x80 + 1 = 0x100 (truncates to
     // the correct A=0x00) incorrectly left Zero cleared, since 0x100 != 0
     // even though the real 8-bit result is zero. Fixed to truncate first.
@@ -33,12 +33,12 @@ namespace NES
         NES_Register::P.Zero((number & 0xFF) == 0);
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
+    // FIXED (found via nestest.nes):
     // per http://wiki.nesdev.com/w/index.php/Status_flags, ADC/SBC's
     // Overflow flag is *signed* overflow (both operands share a sign but
     // the result's sign differs), not "did the raw sum spill past 8 bits" -
-    // that second thing is what Carry already means. The C# original
-    // (CPU/CPU/Status.cs OC) computed Overflow with the same
+    // that second thing is what Carry already means. This previously
+    // computed Overflow with the same
     // `(number & ~0xFF) > 0` test as Carry, which happens to equal Carry's
     // value in every case rather than actual signed overflow (e.g. 0x7F +
     // 0x7F + 1 = 0xFF: no 9th bit set, so this always reported V=0, when

@@ -20,10 +20,10 @@
 
 namespace NES
 {
-    /// @brief Handles the 6502's IRQ / NMI / BRK / RESET lines. Port of NES.Memory/Interrupt.cs.
+    /// @brief Handles the 6502's IRQ / NMI / BRK / RESET lines.
     /// http://wiki.nesdev.com/w/index.php/CPU_interrupts
     ///
-    /// FIXED (was a preserved C# bug, now corrected - a real data race,
+    /// FIXED (a real data race,
     /// found live via ThreadSanitizer, per this project's own "verify
     /// against real evidence" rule: user asked for ASan/TSan builds
     /// specifically because of this project's real CPU-thread/UI-thread
@@ -84,7 +84,7 @@ namespace NES
         static std::atomic<bool> POWER;
         static std::atomic<bool> RESET;
 
-        // NEW, no C# equivalent, no real-hardware equivalent either - a
+        // NEW, no real-hardware equivalent - a
         // deliberate, documented deviation from strict hardware fidelity,
         // added specifically to close a residual recurrence of the exact
         // "Chip 'n Dale MMC1 shift-register corruption" bug class
@@ -156,7 +156,7 @@ namespace NES
         static int brkSevenClock;
         static int nmiSevenClock;
 
-        // NEW, no C# equivalent - see isNMI()'s FIXED note for the race
+        // NEW - see isNMI()'s FIXED note for the race
         // this closes. Real hardware's NMI line is edge-triggered and can't
         // pulse again until the current handler's RTI has actually run;
         // this tracks that in the only way available without a real
@@ -165,7 +165,7 @@ namespace NES
         static bool nmiInProgress;
         static uint8_t nmiEntryStackPointer;
 
-        // NEW, no C# equivalent - see isIRQ()'s own FIXED note (the real
+        // NEW - see isIRQ()'s own FIXED note (the real
         // bug this closes: IRQ dispatch could get stuck for thousands of
         // instructions). Same role as nmiInProgress above, for the same
         // reason: a dedicated "am I mid-dispatch" flag, kept separate from

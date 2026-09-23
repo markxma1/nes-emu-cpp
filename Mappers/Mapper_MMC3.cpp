@@ -145,7 +145,7 @@ namespace NES
         }
     }
 
-    // FIXED (new design, not a C# port - see Mapper_MMC3.h's own LEARNING
+    // FIXED (new design - see Mapper_MMC3.h's own LEARNING
     // NOTE for the full before/after story): this used to be OnFrame(),
     // bursting all 240 of a frame's worth of IRQ clocks in one shot right
     // before the (then whole-frame-snapshot) PPU composited a frame -

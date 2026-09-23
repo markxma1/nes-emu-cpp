@@ -26,14 +26,11 @@ namespace NES
     /// @brief Tile-cache entry: the rasterised 8x8 picture, the raw 2-bit-per-pixel
     /// pattern data it was built from (so a palette-only change can retint
     /// without re-reading PPU memory), and which of the 4 palette slots (cID)
-    /// the pattern actually uses. Port of
-    /// NES_PPU/NES_PPU_Folder/BitmapWithInfo.cs.
+    /// the pattern actually uses.
     ///
-    /// The C# `pattern`/`Pattern` field/property is a reference-typed
-    /// `byte[,]` that's written once (in CreateNewTile) and only ever read
-    /// afterwards (in UpdateTile) - never mutated in place - so storing it by
-    /// value here (`std::array<std::array<uint8_t,8>,8>` instead of a shared
-    /// reference) is behaviourally identical and simpler; this class is a
+    /// The `pattern` field is written once (in CreateNewTile) and only ever read
+    /// afterwards (in UpdateTile) - never mutated in place - so it is stored by
+    /// value (`std::array<std::array<uint8_t,8>,8>`) rather than shared; this class is a
     /// private rendering-cache helper, not core emulation state, so this is
     /// the same kind of structural freedom already used for Picture.
     class BitmapWithInfo

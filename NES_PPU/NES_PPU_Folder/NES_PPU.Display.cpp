@@ -25,12 +25,6 @@
 #include <iostream>
 #include <utility>
 
-// The C# original also built up several System.Diagnostics.Stopwatch /
-// TimeSpan values per frame in Display()/DrawBackground() (t1..t4/t5) purely
-// for local profiling - none of them were ever logged, displayed or read
-// anywhere. Dead instrumentation, omitted here rather than pulling in
-// <chrono> for no observable effect.
-
 namespace NES
 {
     NES_PPU::Picture NES_PPU::TempDisplay(256, 240);
@@ -53,12 +47,11 @@ namespace NES
         }
     }
 
-    // FIXED (was a preserved C# bug, now corrected - this is the "shows Stage
+    // FIXED (this is the "shows Stage
     // 1 then freezes forever" bug): this port has no independent PPU
     // scanline/dot clock; at the time of this fix, the UI's poll loop calling
     // Display() (see NES/main.cpp) was the closest thing to a vblank clock
-    // this design had, matching the C# original's own WinForms timer driving
-    // Monitor.cs's getDisplay() calls. (UPDATE, later in the same overall
+    // this design had. (UPDATE, later in the same overall
     // effort: Display() is no longer called from the UI thread at all - see
     // NES_Console::RenderFrame()'s own comment - but the vblank-persistence
     // bug this note describes and fixes is unrelated to *which* thread
@@ -69,9 +62,8 @@ namespace NES
     // only gates whether that automatic vblank event is *allowed* to
     // interrupt the CPU, and "games typically enable it once during
     // initialization ... and leave it active across all frames" (no
-    // per-frame re-enable expected). The C# original (and this port, until
-    // now) had `Display()` clear PPUCTRL.V() to false right after reading it
-    // true once - i.e. treating "NMI enabled" as a one-shot "please render
+    // per-frame re-enable expected). Display() used to clear PPUCTRL.V() to false right after
+    // reading it true once - i.e. treating "NMI enabled" as a one-shot "please render
     // exactly one frame" request that consumes itself, rather than a
     // persistent setting. A game that (like most games, including this one)
     // enables NMI once at boot and never touches PPUCTRL again would get
@@ -82,7 +74,7 @@ namespace NES
     // changed by the game itself (via PPUCTRLFlags::V's setter, still fired
     // through the CPU's normal $2000 write path), matching how real
     // hardware never touches its own enable bit.
-    // FIXED (was a preserved C# bug, now corrected - the "hangs right at
+    // FIXED (the "hangs right at
     // boot" regression the unofficial-opcode/nestest work exposed): per
     // http://wiki.nesdev.com/w/index.php/PPU_registers, PPUSTATUS's vblank
     // flag (bit 7) "is set at dot 1 of line 241 ... regardless of whether
@@ -91,7 +83,7 @@ namespace NES
     // also *interrupts the CPU* (see the NMI-persistence NOTE below on this
     // same function) - it has no bearing on the status flag itself.
     //
-    // The C# original (and this port, until now) only ever called
+    // Previously this only ever called
     // `NES_PPU_Register::PPUSTATUS.V(true)` from *inside* the
     // `if (PPUCTRL.V())` block - so before a game ever writes to PPUCTRL
     // (enabling NMI), the vblank flag could never become true at all. Real
@@ -104,7 +96,7 @@ namespace NES
     // every Display() call (this port's per-tick stand-in for a real
     // vblank), independent of whether NMI happens to be enabled yet.
     //
-    // FIXED (was a preserved C# bug, now corrected - the "loads fine, CPU
+    // FIXED (the "loads fine, CPU
     // runs, PPUMASK shows rendering enabled, but the screen is permanently
     // black" bug found while testing real commercial ROMs beyond Galaga,
     // e.g. Super Mario Bros/NROM and Contra/UxROM): frame composition
@@ -203,7 +195,7 @@ namespace NES
     NES_PPU::Picture NES_PPU::spriteBehindBuffer(256, 240);
     NES_PPU::Picture NES_PPU::spriteFrontBuffer(256, 240);
 
-    // NEW, no C# equivalent - see NES_PPU.h's own comment on this function
+    // New: see NES_PPU.h's own comment on this function
     // for why it exists (this port had no independent PPU scanline/dot
     // clock at all - found via three separate real-game bugs this session:
     // MMC1 shift-register corruption from too-frequent NMI, MMC3
@@ -285,7 +277,7 @@ namespace NES
         return frameCompleted;
     }
 
-    // NEW, no C# equivalent - one hook per real scanline boundary,
+    // New: one hook per real scanline boundary,
     // replacing what Display() used to do unconditionally once per whole
     // frame (see Display()'s own UPDATE note above - only *when* these
     // fire changed here, not *what* they do). Scanline numbering matches
@@ -359,7 +351,7 @@ namespace NES
         }
     }
 
-    // FIXED (new design, not a C# port - the direct fix for the Chip 'n
+    // FIXED (new design - the direct fix for the Chip 'n
     // Dale nametable-streaming-during-scroll bug this whole redesign was
     // undertaken for): renders exactly one real on-screen scanline (256x1
     // pixels) of pure background into the persistent backgroundBuffer,
@@ -491,8 +483,8 @@ namespace NES
         // Deliberately DrawImage() (additive blend, respects alpha) here,
         // *not* DrawNewImage() (plain overwrite): a background tile's
         // palette index 0 resolves to Color::Transparent() (A=0,
-        // R=255,G=255,B=255 - see NES_PPU_Palette), matching how the C#
-        // original's own real hardware always treats index 0 as "show the
+        // R=255,G=255,B=255 - see NES_PPU_Palette), matching how real
+        // hardware always treats index 0 as "show the
         // universal background color", not literal white. DrawBackground()
         // relied on that same additive blend to let its (freshly black,
         // never-yet-painted) `frame` show through wherever an incoming
@@ -523,7 +515,7 @@ namespace NES
                                         Rect{(256 * 2) - xScroll, pixelRowWithinTile, 256, 1});
     }
 
-    // FIXED (new design, not a C# port - the direct fix for the sprite half
+    // FIXED (new design - the direct fix for the sprite half
     // of the scanline-accurate PPU redesign, replacing the old
     // InsertObect(), deleted): renders exactly the sprites that cover one
     // real on-screen scanline into spriteBehindBuffer/spriteFrontBuffer
@@ -573,7 +565,7 @@ namespace NES
 
                 Picture spriteCanvas(8, spriteHeight);
 
-                // FIXED (was a preserved C# bug, now corrected - this is the
+                // FIXED (this is the
                 // "eine Halfte ist richtig, andere falsch" sprite-corruption
                 // bug): OAM byte 1 means two different things depending on
                 // PPUCTRL's sprite-size bit H ($2000 bit 5):
@@ -585,11 +577,10 @@ namespace NES
                 //  - 8x16 mode (H=1): bit 0 selects the bank *per sprite* and
                 //    bits 7-1 give the top subtile's index (bottom = index+1) -
                 //    see http://wiki.nesdev.com/w/index.php/PPU_OAM ("Byte 1").
-                // NES_PPU_OAM::Byte1::Number()/Bank() (both this port and the
-                // C# original) always apply the *8x16* interpretation - masking
-                // off bit 0 as a per-sprite bank selector - regardless of
-                // PPUCTRL.H(). PPUCTRL.S() and PPUCTRL.H() were declared but
-                // never read anywhere in either codebase (grepped both). In the
+                // NES_PPU_OAM::Byte1::Number()/Bank() always apply the *8x16*
+                // interpretation - masking off bit 0 as a per-sprite bank
+                // selector - regardless of PPUCTRL.H(). PPUCTRL.S() and PPUCTRL.H() were declared but
+                // never read anywhere in the project. In the
                 // far more common 8x8 mode this corrupts roughly half of all
                 // sprites: an even tile index by chance still points at the
                 // right graphic, but an odd one silently loses its low bit
@@ -713,7 +704,7 @@ namespace NES
         }
     }
 
-    // NEW, no C# equivalent - user-requested debug tool (see NES/main.cpp's
+    // New: user-requested debug tool (see NES/main.cpp's
     // "O = OAM Viewer" key), built while investigating whether a game's
     // status-bar HUD digits (Tiny Toon Adventures/Bram Stoker's Dracula)
     // come from the background nametable or from sprites parked below the

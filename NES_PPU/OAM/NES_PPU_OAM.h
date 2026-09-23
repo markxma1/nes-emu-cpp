@@ -22,8 +22,8 @@
 
 namespace NES
 {
-    /// @brief Object Attribute Memory: the 256-byte sprite table. Port of
-    /// NES_PPU/OAM/NES_PPU_OAM.cs. http://wiki.nesdev.com/w/index.php/PPU_OAM
+    /// @brief Object Attribute Memory: the 256-byte sprite table.
+    /// http://wiki.nesdev.com/w/index.php/PPU_OAM
     class NES_PPU_OAM
     {
     public:
@@ -87,8 +87,8 @@ namespace NES
         /// Common name: OAMDMA. Uploads 256 bytes from CPU page $XX00-$XXFF
         /// into OAM (see NES_PPU_Register's $4014 hook). See NES_PPU_OAM.cpp
         /// for a bug this fixes: on real hardware this is a byte-value copy
-        /// that leaves OAM decoupled from CPU RAM afterward - both this port
-        /// and the C# original used to alias the same AddressSetup object
+        /// that leaves OAM decoupled from CPU RAM afterward - this code
+        /// previously aliased the same AddressSetup object
         /// instead, so OAM kept "seeing" every later CPU write to that RAM
         /// page rather than a stable per-frame snapshot.
         static void OAMDMA(uint8_t XX);

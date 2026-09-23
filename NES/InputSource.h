@@ -16,9 +16,8 @@
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 ///
 /// @brief A source of NES-button press states (keyboard, gamepad, ...).
-/// New code, not a port of anything - part of the UI shell, which per the
-/// porting brief is free to differ from the C# original (only CPU/PPU/
-/// Memory/Mapper/addressing logic has to structurally mirror it). This
+/// Part of the UI shell, separate from the core CPU/PPU/Memory/Mapper
+/// emulation logic. This
 /// interface is the seam: NES/main.cpp's game loop only ever asks "is this
 /// NES button currently down, across whatever input sources are active" -
 /// it never needs to know whether the answer came from a keyboard, a

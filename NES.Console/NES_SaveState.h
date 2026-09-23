@@ -19,13 +19,10 @@
 
 namespace NES
 {
-    /// @brief Save/load a full emulation snapshot to/from a local file. New
-    /// code, no C# equivalent (NES_Console.h's own class comment already
-    /// flagged this as "not ported yet - out of scope for this first 'core'
-    /// pass" - now in scope, per explicit user request: being able to
-    /// bookmark a moment right before/after a visible bug, without having
-    /// to replay the same input sequence by hand every time, to make
-    /// testing practical).
+    /// @brief Save/load a full emulation snapshot to/from a local file.
+    /// Lets you bookmark a moment right before/after a visible bug, without
+    /// having to replay the same input sequence by hand every time, to make
+    /// testing practical.
     ///
     /// Captures: CPU registers (NES_Register), the full 64KB CPU address
     /// space (NES_Memory::Memory - this already covers PPUCTRL/PPUMASK/

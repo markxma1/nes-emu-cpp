@@ -155,12 +155,12 @@ namespace NES
         }
     }
 
-    // FIXED (new design, not a C# port - a race this port's own wall-clock-
+    // FIXED (a race this port's own wall-clock-
     // driven NMI delivery introduces, found while investigating why Tiny
     // Toon Adventures' CPU throughput measured throughout stuck loops at
     // ~30000-275000 instr/sec that never advanced no matter how much real
-    // time was given): the C# original's WinForms timer, and this port's
-    // NES_PPU::Display() (see its own comment on this), both set the
+    // time was given): this port's
+    // NES_PPU::Display() (see its own comment on this) sets the
     // "please NMI" flag once per rendered frame - unlike real hardware,
     // where the PPU's vblank pulse and NMI line are wired directly together
     // and genuinely cannot pulse again until the *next* real vblank, ~16.6ms
@@ -225,14 +225,14 @@ namespace NES
         }
     }
 
-    // FIXED (was a preserved C# bug, now corrected - found via nestest.nes):
+    // FIXED (found via nestest.nes):
     // real 6502 BRK/IRQ/NMI push PCH, then PCL, then the flags byte (P ends
     // up on top) - http://wiki.nesdev.com/w/index.php/CPU_interrupts,
     // http://wiki.nesdev.com/w/index.php/RTI, both of which RTI must pop in
     // the reverse of that order (P first, then PC - see Assembly_6502.cpp's
-    // RTI_40). The C# original (NES.Memory/Interrupt.cs ReplacePC) pushed P
-    // *before* PC instead - internally self-consistent with the C#/this
-    // port's own (equally backwards) RTI pop order, so a BRK/IRQ/NMI
+    // RTI_40). This code previously pushed P
+    // *before* PC instead - internally self-consistent with this
+    // port's own (equally backwards) RTI pop order at the time, so a BRK/IRQ/NMI
     // followed by this port's own RTI happened to still round-trip
     // correctly, but nestest.nes builds its RTI test stack by hand in the
     // real push order - which the old RTI pop order got completely wrong.
@@ -246,7 +246,7 @@ namespace NES
     // back - see PcToStack()'s own NOTE) - reusing it here silently applied
     // that same "-1" to every interrupt entry too. Before this file's first
     // fix above, that "-1" was invisible: RTI's *old*, wrong pop order
-    // (inherited from the C# original) happened to always add a
+    // happened to always add a
     // compensating "+1" back (the shared, RTS-style StackToPc()), so the
     // net effect cancelled out. Fixing RTI's pop order to match real
     // hardware (this file's first fix, and Assembly_6502.cpp's RTI_40 -

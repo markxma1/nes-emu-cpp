@@ -22,8 +22,7 @@
 namespace NES
 {
     /// @brief Decodes a PPU attribute table (2 bits of palette index per 16x16
-    /// pixel block) into one palette index per 8x8 tile. Port of
-    /// NES_PPU/Memory/NES_PPU_AttributeTable.cs.
+    /// pixel block) into one palette index per 8x8 tile.
     /// http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
     class NES_PPU_AttributeTable
     {

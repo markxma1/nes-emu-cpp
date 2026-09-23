@@ -40,16 +40,13 @@ namespace NES
     void AssemblyList::CreateAdressMemory()
     {
         Assembly.clear();
-        // FIXED (was a preserved C# bug, now corrected - this one crashed
-        // the whole program rather than just misbehaving): the C# original
-        // only built 255 entries (indices 0x00-0xFE), leaving opcode byte
-        // 0xFF with no slot at all. In C# that was harmless - ArrayList
-        // bounds-checks, so indexing it with 0xFF threw a normal .NET
-        // exception, caught by the same try/catch every other unimplemented
-        // opcode already relies on (see NES_CPU::Step()'s NOTE). This port's
-        // std::vector, ported 1:1 to the same 255-entry size, does NOT
-        // bounds-check operator[] - so a ROM byte of exactly 0xFF fetched as
-        // an opcode was undefined behavior (a hard segfault, not a caught
+        // FIXED (this one crashed the whole program rather than just
+        // misbehaving): this previously only built 255 entries (indices
+        // 0x00-0xFE), leaving opcode byte 0xFF with no slot at all. A
+        // bounds-checked container would have thrown a catchable exception
+        // there (like every other unimplemented opcode, see
+        // NES_CPU::Step()'s NOTE), but std::vector does NOT bounds-check
+        // operator[] - so a ROM byte of exactly 0xFF fetched as an opcode was undefined behavior (a hard segfault, not a caught
         // exception). $FF is a real, definable opcode (ISC abs,X - see
         // Math::ISC and this file's UnofficialOpcodes()), and every uint8_t
         // value 0x00-0xFF must have a slot for NES_CPU::Step()'s
@@ -176,8 +173,7 @@ namespace NES
     {
         Assembly[0x09] = [this]() { Input8Byte(Assembly_6502::ORA_09); };
         Assembly[0x05] = [this]() { Input8Byte(Assembly_6502::ORA_05); };
-        // FIXED (was a preserved C# bug, now corrected - found via
-        // nestest.nes): the C# original (CPU/CPU/AssemblyList.cs) wired
+        // FIXED (found via nestest.nes): this previously wired
         // ORA_01 (opcode $01, "ORA (zp,X)") into table slot 0x21 instead of
         // 0x01 - a copy-paste typo (0x21 is really AND (zp,X)'s slot, whose
         // own correct registration two lines below then silently overwrote
@@ -186,7 +182,7 @@ namespace NES
         // stalled - see NES_CPU::Step()'s catch block), while ORA_01 itself
         // was simply never reachable from any opcode byte.
         Assembly[0x01] = [this]() { Input8Byte(Assembly_6502::ORA_01); };
-        // FIXED (was a preserved C# bug, now corrected - found via
+        // FIXED (found via
         // nestest.nes, same copy-paste-typo pattern as opcode $01 above):
         // ORA_15 ($15, "ORA zp,X") and ORA_11 ($11, "ORA (zp),Y") were both
         // wired into AND's slots (each exactly +0x20, AND's column in the
@@ -602,8 +598,7 @@ namespace NES
         Assembly[0xEB] = [this]() { Input8Byte(Assembly_6502::SBC_E9); };
     }
 
-    // NEW: not a port of anything - neither this port nor the C# original
-    // implemented any of the 6502's well-known "unofficial"/"illegal"
+    // NEW: this table previously implemented none of the 6502's well-known "unofficial"/"illegal"
     // opcodes at all (every one of them fell through to the NoAssemby
     // catch-all - see CreateAdressMemory() above), which was harmless as
     // long as a ROM's actual executed code path never happened to hit one.

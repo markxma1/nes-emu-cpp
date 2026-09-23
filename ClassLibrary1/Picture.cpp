@@ -26,9 +26,8 @@ namespace NES_PPU
     {
     }
 
-    // NOTE: performance fix, not a port of anything - Picture is new UI/graphics
-    // plumbing (no C# Bitmap equivalent to mirror), so this is plain
-    // implementation quality, not "preserve the original's behavior". The
+    // NOTE: performance fix - Picture is UI/graphics plumbing, so this is plain
+    // implementation quality. The
     // original version of this copy constructor rebuilt `img`/`infoLayer` one
     // pixel at a time via GetPixel()/SetPixel() (bounds check + mirror-recursion
     // per pixel) instead of just copying the backing vectors - for the 512x480
@@ -191,7 +190,7 @@ namespace NES_PPU
                 DrawPixel(bitmap.GetPixel(i, j), i - srcRec.X + destRec.X, j - srcRec.Y + destRec.Y);
     }
 
-    // NEW, no C# equivalent - added for the scanline-accurate PPU redesign
+    // Added for the scanline-accurate PPU redesign
     // (see NES_PPU::RenderBackgroundScanline()): the Rect-based DrawImage()
     // above additively blends (via DrawPixel/add()), which is exactly right
     // for compositing sprites/background onto a frame that already has
@@ -228,11 +227,10 @@ namespace NES_PPU
         return Color(AvarageColor(c1, c2, 'R'), AvarageColor(c1, c2, 'G'), AvarageColor(c1, c2, 'B'), a);
     }
 
-    // NOTE: preserved from the C# original (ClassLibrary1/Picture.cs
-    // AvarageColor): for a non-opaque, non-zero alpha this treats `c2.A`
+    // NOTE: for a non-opaque, non-zero alpha this treats `c2.A`
     // (0-255) as if it were already a 0..1 blend fraction, so the formula is
     // dimensionally wrong for any alpha strictly between 0 and 255. It's
-    // dormant here because every Color this port ever constructs has A==0
+    // dormant because every Color ever constructed has A==0
     // (Color::Transparent(), the default) or A==255 (every named/palette
     // colour) - both of which this formula happens to handle correctly (A=0
     // degenerates to `c1`'s channel, A=255 takes the early-return branch).

@@ -105,8 +105,7 @@ namespace NES
         void V(bool v) { adress->value(static_cast<uint8_t>(adress->value() & ~0x80)); if (v) adress->value(static_cast<uint8_t>(adress->value() | 0x80)); }
     };
 
-    /// @brief The PPU's memory-mapped registers ($2000-$2007, $4014). Port of
-    /// NES_PPU/Memory/NES_PPU_Register.cs.
+    /// @brief The PPU's memory-mapped registers ($2000-$2007, $4014).
     class NES_PPU_Register
     {
     public:
@@ -144,7 +143,7 @@ namespace NES
         static void InitialAtPower();
         static void InitialOnReset();
 
-        // NEW, no C# equivalent - user-requested save/load-state feature
+        // New: user-requested save/load-state feature
         // (see NES_SaveState's own comment). Public (rather than a purely
         // private implementation detail) specifically so NES_SaveState can
         // capture/restore the one piece of $2006 write-sequence state that
@@ -167,7 +166,7 @@ namespace NES
         static void INITOAMDMA();
         static void PPUSCROLLRESSET();
 
-        /// NEW, no C# equivalent - see INITPPUADDR()'s own FIXED note: holds
+        /// New: see INITPPUADDR()'s own FIXED note: holds
         /// $2006's first (high-byte) write between the two writes of a
         /// real address-set sequence, now that the shared NES_PPU::ScrollXoY
         /// write-toggle (not a blind "every write shifts left 8" assumption)

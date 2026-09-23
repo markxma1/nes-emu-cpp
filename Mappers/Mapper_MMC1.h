@@ -48,7 +48,7 @@ namespace NES
     class Mapper_MMC1 : public Mapper
     {
     public:
-        // NEW, no C# equivalent - see Mapper::SerializeState()'s own
+        // New: see Mapper::SerializeState()'s own
         // comment. Captures the 4 registers a subsequent WriteRegister()
         // would otherwise recompute banks from using stale (power-on
         // default) values.

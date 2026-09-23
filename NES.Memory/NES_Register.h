@@ -26,7 +26,7 @@ namespace NES
 {
     /// @brief 6502 processor status flags, packed into one byte.
     ///
-    /// Port of NES.Memory/NES-Register.cs `PFlags`. Bit layout (low to high):
+    /// Bit layout (low to high):
     /// C(0) Z(1) I(2) D(3) B(4) U(5) V(6) N(7) - see
     /// http://wiki.nesdev.com/w/index.php/Status_flags
     struct PFlags
@@ -60,9 +60,9 @@ namespace NES
         std::string ToString() const;
     };
 
-    /// @brief The 6502 CPU registers (A, X, Y, P, S, PC). Port of NES_Register (C#).
+    /// @brief The 6502 CPU registers (A, X, Y, P, S, PC)..
     ///
-    /// Kept as static members (like the C# `static` fields) rather than an
+    /// Kept as static members rather than an
     /// instance, since the whole emulator only ever has one CPU.
     class NES_Register
     {

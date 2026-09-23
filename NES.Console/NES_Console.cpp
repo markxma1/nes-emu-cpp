@@ -43,20 +43,18 @@ namespace NES
     {
         NES_Memory memory;
         // NES_Register and NES_CPU have no meaningful constructors in this
-        // port (both are all-static classes, matching the C# `new
-        // NES_Register()`/`new NES_CPU()` calls whose constructors did
-        // nothing observable either) - nothing to instantiate for them.
+        // port (both are all-static classes) - nothing to instantiate for them.
         NES_PPU ppu;
         NES_GamePad gamepad;
-        // New code, no C# equivalent to mirror - see NES_APU.h.
+        // See NES_APU.h.
         NES_APU_Register apuRegister;
 
-        // FIXED (was a preserved C# bug, now activated - see NES_CPU.cpp's
-        // Sleep()/SleepTime() FIXED notes for the full story): `mod`
+        // FIXED (see NES_CPU.cpp's Sleep()/SleepTime() FIXED notes for the
+        // full story): `mod`
         // defaulted to `Mod::none` (no CPU throttling at all, i.e. running
         // as fast as the host machine can execute instructions) because
-        // nothing ever selected NTSC/PAL - the C# original's CPUSpeedForm
-        // debug tool that would have let a user pick one was never ported.
+        // nothing ever selected NTSC/PAL, and there is no region-selection
+        // UI.
         // Every ROM this project has ever tested is an NTSC-region dump
         // (Galaga, Monster Truck Rally, Contra, Super Mario Bros., ... all
         // "(U)"/US releases), so NTSC is the correct fixed default absent
@@ -64,7 +62,7 @@ namespace NES
         // ~1.789773 MHz CPU clock instead of running arbitrarily fast.
         NES_CPU::mod = Mod::NTSC;
 
-        // NEW, no C# equivalent - see NES_PPU::SetScanlineCallback()'s own
+        // See NES_PPU::SetScanlineCallback()'s own
         // comment for why this indirection exists (NES_PPU has no
         // compile-time dependency on NES_ROM/Mapper). Registered once,
         // here, rather than resolved fresh on every call, since
@@ -159,7 +157,7 @@ namespace NES
         return latestOAMDebugOverlay;
     }
 
-    // NEW, no C# equivalent - see getNameTabeleDebugOverlay()'s own comment
+    // See getNameTabeleDebugOverlay()'s own comment
     // for the race this closes. NES/main.cpp calls this once per UI-thread
     // loop iteration with the debug Name Table window's current `visible`
     // state, so RenderFrame() below only pays NameTabeleDebugOverlay()'s
@@ -179,7 +177,7 @@ namespace NES
         oamDebugWindowVisible.store(visible, std::memory_order_relaxed);
     }
 
-    // FIXED (new design, not a C# port - the actual root cause behind this
+    // FIXED (the actual root cause behind this
     // session's Chip and Dale investigation): this used to run directly
     // inside getDisplay(), i.e. on the UI thread, once per NES/main.cpp
     // render-loop iteration - itself throttled only by cv::waitKeyEx(16)
@@ -222,8 +220,7 @@ namespace NES
     // only ever runs on the CPU thread, same as the read side, so that
     // "much bigger redesign" turned out to already be this one.
     //
-    // NOTE: the `display` parameter is accepted but unused, matching the C#
-    // original (NES.Console/NES_Console.cs getDisplay) - it's never actually
+    // NOTE: the `display` parameter is accepted but unused - it's never actually
     // passed through to NES_PPU::Display(), which takes no arguments.
     NES_PPU::Picture NES_Console::getDisplay(bool /*display*/)
     {

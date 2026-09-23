@@ -58,8 +58,7 @@ namespace NES
     /// http://wiki.nesdev.com/w/index.php/Controller_reading, "the D1-D4
     /// pins are only pulled up ... reading $4016/$4017 will typically
     /// contain ... open bus"). `SerialControllerData` models bit 0, `OpenBus`
-    /// the rest (mask 0xE0 here rather than the full 0xF8, matching this
-    /// port's C# original).
+    /// the rest (mask 0xE0 here rather than the full 0xF8).
     class OutputFlags
     {
     public:
@@ -76,40 +75,36 @@ namespace NES
         void OpenBus(uint8_t v) { address->value(static_cast<uint8_t>(address->value() & ~0xE0)); address->value(static_cast<uint8_t>(address->value() | (v & 0xE0))); }
     };
 
-    // C#'s OutputFlags4016/OutputFlags4017 subclasses added nothing over
-    // OutputFlags and were never separately used - not ported, `OutputFlags`
-    // covers both.
+    // `OutputFlags` covers both $4016 and $4017; no per-port subclasses are
+    // needed.
 
     /// @brief The NES controller port(s): models the $4016/$4017 shift-register
     /// protocol described on InputFlags/OutputFlags above, so a game's normal
     /// "strobe then read 8 times" polling loop gets real button data instead
-    /// of open bus. Port of NES.Controller/Controller/NES_GamePad.cs.
-    /// http://wiki.nesdev.com/w/index.php/Standard_controller
+    /// of open bus.    /// http://wiki.nesdev.com/w/index.php/Standard_controller
     /// http://wiki.nesdev.com/w/index.php/Controller_reading
     class NES_GamePad
     {
     public:
-        // FIXED (was a preserved C# bug, now corrected - found via real
+        // FIXED (found via real
         // gameplay testing, "right works, left doesn't"): per
         // http://wiki.nesdev.com/w/index.php/Standard_controller, a real
         // controller's 8 sequential reads return A, B, Select, Start, Up,
         // Down, Left, Right in that exact order - getButton() below reads
         // `Player1.Button[P1BID]` positionally in that same sequence, so
         // this vector's order *is* the wire protocol as far as any game's
-        // reading code is concerned. The C# original's Dictionary insertion
-        // order was A,B,SELECT,START,L,R,U,D - positions 4-7 (meant to be
+        // reading code is concerned. The insertion
+        // order was previously A,B,SELECT,START,L,R,U,D - positions 4-7 (meant to be
         // Up,Down,Left,Right) were actually L,R,U,D, a silent transposition
-        // (Left/Right swapped with Up/Down). Since the C# original never
-        // wired any real input to Player1 at all (see main.cpp's file-level
-        // NOTE), this was never exercised or noticed there either - it only
-        // became observable once this port added real keyboard input and
-        // fixed enough CPU bugs for a game to actually respond to it. Fixed
+        // (Left/Right swapped with Up/Down). Since no real input was
+        // originally wired to Player1 at all (see main.cpp's file-level
+        // NOTE), this went unnoticed until real keyboard input was added and
+        // enough CPU bugs were fixed for a game to actually respond to it. Fixed
         // to the real U,D,L,R order.
         /// Button order matches the real controller's Up/Down/Left/Right
         /// read order (see the FIXED note above) - `getButton()` reads
         /// `Player1.Button[P1BID]` by this same positional order.
-        /// SELECT's odd `true` initial value is preserved verbatim from the
-        /// C# original.
+        /// SELECT's odd `true` initial value is kept as-is.
         struct Controller
         {
             std::vector<std::pair<std::string, bool>> Button;
@@ -125,8 +120,7 @@ namespace NES
         static Controller Player3;
         static Controller Player4;
 
-        /// Set-only in the C# original (`public static InputFlags Input4016 { set; }`,
-        /// no getter) - kept the same shape here.
+        /// Set-only (no getter).
         static void Input4016(InputFlags v) { input4016 = v; }
         static OutputFlags Output4016() { return output4016; }
 
@@ -135,13 +129,11 @@ namespace NES
     private:
         static InputFlags input4016;
         static OutputFlags output4016;
-        // NOTE: the C# original (`private int P1BID`) declared this as an
-        // instance field even though the class only ever has one instance
-        // (NES_Console::INIT constructs exactly one NES_GamePad); made static
-        // here to match how it's actually used, not a behavior change.
+        // NOTE: static, since the class only ever has one instance
+        // (NES_Console::INIT constructs exactly one NES_GamePad).
         static int P1BID;
 
-        // NOTE: new, no C# equivalent - see getButton()'s FIXED note (the
+        // NOTE: see getButton()'s FIXED note (the
         // strobe-bit one) for why this can't just be
         // `input4016.strobe()`/`address->value() & 0x01` anymore: reading
         // $4016 (getButton() itself) zeroes the *whole* stored byte via
@@ -164,8 +156,8 @@ namespace NES
         /// insertion order, matching the real hardware's A/B/Select/Start/
         /// Up/Down/Left/Right read order - see Controller's FIXED note).
         /// NOTE: only Player1 is wired up -
-        /// $4017 (Player2) has no equivalent hook here, matching the C#
-        /// original (which never wired Player2/3/4 to any address either).
+        /// $4017 (Player2) has no equivalent hook here (Player2/3/4 are not wired to any
+        /// address).
         static void getButton();
     };
 }

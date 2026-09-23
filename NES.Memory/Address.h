@@ -22,17 +22,14 @@ namespace NES
 {
     /// @brief Interface for one addressable byte cell.
     ///
-    /// C++ port of the C# `Address` interface (NES.Memory/Address.cs).
-    /// C# properties don't exist in C++, so the `Value` get/set pair from the
-    /// original interface becomes an overloaded `Value()` accessor pair here
-    /// (no-arg getter, one-arg setter) - kept as one name, exactly like the
-    /// C# property was one name with two accessors.
+    /// The `Value` get/set pair is an overloaded `Value()` accessor pair
+    /// (no-arg getter, one-arg setter) sharing one name.
     class Address
     {
     public:
         virtual ~Address() = default;
 
-        /// Value with additional get/set hook functions (mirrors the C# `Value` property).
+        /// Value with additional get/set hook functions.
         virtual uint8_t Value() const = 0;
         virtual void Value(uint8_t v) = 0;
 

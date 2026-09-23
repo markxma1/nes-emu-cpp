@@ -20,12 +20,6 @@
 #include <algorithm>
 #include <iterator>
 
-// A few methods in the C# original (Tile_StartAdress, the 2-arg Tile
-// overload) also declared a local `byte[,] pattern = new byte[8, 8];` that
-// was never read - a dead local, omitted below. Likewise CreateTileBitmap's
-// `try { ... } catch (Exception) { throw; }` just rethrows unconditionally,
-// which is a no-op wrapper - omitted rather than translated literally.
-
 namespace NES
 {
     NES_PPU::Picture NES_PPU::TempPatternTable(128 * 2, 128);
@@ -64,7 +58,7 @@ namespace NES
         return CreateTileBitmap(startAdress, color, PatternTable, ID);
     }
 
-    // NEW, no C# equivalent - found live as a real regression the moment
+    // New: found live as a real regression the moment
     // per-scanline background rendering was first plugged in (Chip 'n
     // Dale's title screen losing all its non-black colors, keeping only
     // stray black outline pixels): CreateTileBitmap()'s patternArray cache
@@ -96,7 +90,7 @@ namespace NES
     // up.
     namespace
     {
-        // NEW, no C# equivalent - see ClearFreshTileCaches()'s own comment
+        // New: see ClearFreshTileCaches()'s own comment
         // for why these exist and why they're safe (a *per-frame* cache,
         // not patternArray's cross-frame one). Keyed by (tileID, palette)
         // for background, (tileID, palette, bank) for sprites - enough
@@ -106,7 +100,7 @@ namespace NES
         std::unordered_map<int, NES_PPU::Picture> freshSpriteTileCache;
     }
 
-    // NEW, no C# equivalent - called once per real frame (from
+    // New: called once per real frame (from
     // NES_PPU::OnScanlineStart()'s `scanline == 0` branch, alongside the
     // backgroundBuffer/sprite buffer resets) to bound
     // DecodeBackgroundTileFresh()/DecodeSpriteTileFresh()'s per-frame cache
@@ -159,7 +153,7 @@ namespace NES
         return bitmap;
     }
 
-    // NEW, no C# equivalent - same reasoning as DecodeBackgroundTileFresh()
+    // New: same reasoning as DecodeBackgroundTileFresh()
     // above (see its own comment for the full story - patternArray's cache
     // assumes "decode once per frame is enough", which per-scanline
     // rendering violates), for sprite tiles: same pixel math as the 3-arg
@@ -196,18 +190,17 @@ namespace NES
     /// different banks/mirrors still hits the same cache entry only when it's
     /// genuinely the same underlying AddressSetup cell).
     ///
-    /// NOTE: performance fix, not a behavior change. The C# original (NES_PPU/
-    /// NES_PPU_Folder/NES_PPU.Tile.cs GetTileID) computed this same "position
-    /// within Memory" via `NES_PPU_Memory.Memory.IndexOf(PatternTable[startAdress])`
-    /// - an O(n) linear scan over the full ~16K-entry address space, run for
+    /// NOTE: performance fix, not a behavior change. This used to compute the
+    /// "position within Memory" via `IndexOf(PatternTable[startAdress])`
+    /// (std::find) - an O(n) linear scan over the full ~16K-entry address space, run for
     /// every tile (background + sprites), every frame. AddressSetup already
     /// carries an `id` field set to exactly this index when the cell is first
     /// constructed in NES_PPU_Memory::CreateMemory() (`std::make_shared<AddressSetup>(i)`),
     /// and pattern-table addresses (0x0000-0x1FFF) are never among the ranges
     /// NES_PPU_Memory::MemoryMirror() re-aliases, so that id is stable and
     /// already exactly what IndexOf()/std::find() was computing the hard way.
-    /// `AddressSetup::ID()` is otherwise unused anywhere else in the C# original
-    /// or this port (grepped both), so reading it here changes nothing
+    /// `AddressSetup::ID()` is otherwise unused anywhere else in this
+    /// project, so reading it here changes nothing
     /// observable - just turns an O(n) search into an O(1) field read.
     int NES_PPU::GetTileID(int startAdress, int pallete, const AddrVec& PatternTable)
     {

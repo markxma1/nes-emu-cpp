@@ -29,15 +29,13 @@ namespace NES
 {
     /// @brief The PPU's rendering pipeline: turns PPU memory (pattern/name/
     /// attribute tables, OAM, palettes) into displayable NES_PPU::Picture
-    /// framebuffers. Port of the NES_PPU/NES_PPU_Folder C# partial class,
-    /// combining NES_PPU.cs, .Display.cs, .Tile.cs, .NameTable.cs and
-    /// .Scroll.cs into this one header (C++ has no partial classes).
+    /// framebuffers. The implementation is split across NES_PPU.cpp,
+    /// .Display.cpp, .Tile.cpp, .NameTable.cpp and .Scroll.cpp.
     /// http://wiki.nesdev.com/w/index.php/PPU
     ///
     /// Naming note: this class (`NES::NES_PPU`) and the `::NES_PPU` namespace
     /// holding the graphics primitives (Picture, Color, ...) share the name
-    /// NES_PPU, exactly like the C# original's class `NES.NES_PPU` coexisted
-    /// with its `using NES_PPU;` (the ClassLibrary1 namespace) - the alias
+    /// NES_PPU - the alias
     /// members below (`Picture`, `Color`, ...) are what let callers elsewhere
     /// in this port keep writing the unqualified `NES_PPU::Picture` etc. they
     /// already do (e.g. NES_Console.cpp) and have it still resolve to the
@@ -50,16 +48,16 @@ namespace NES
         using Rect = ::NES_PPU::Rect;
         using RotateFlipType = ::NES_PPU::RotateFlipType;
 
-        // --- NES_PPU.cs ---
+        // --- NES_PPU.cpp ---
         NES_PPU();
 
         static Picture PaletteTable();
 
-        // --- NES_PPU.Tile.cs ---
+        // --- NES_PPU.Tile.cpp ---
 
         /// Set from the debug pattern-table/name-table viewers (deferred UI
         /// tooling) to outline freshly-rendered tiles; false in the core-only
-        /// build for now, kept as a real public field to match the C# shape.
+        /// build for now, kept as a real public field.
         static bool DrawRefresh;
 
         /// Converts a tile at a raw pattern-table byte offset to a Picture.
@@ -70,7 +68,7 @@ namespace NES
         /// Converts an OAM sprite tile by ID, explicit palette and bank.
         static Picture Tile(uint16_t spriteID, int pallete, int bankID);
 
-        /// NEW, no C# equivalent - see the .cpp definition's own comment:
+        /// New: see the .cpp definition's own comment:
         /// same pixel math as the 2-arg Tile() above (background tile,
         /// PPUCTRL.B()-selected bank), but *never* goes through
         /// patternArray's cross-call bitmap cache - used by
@@ -81,12 +79,12 @@ namespace NES
         /// data.
         static Picture DecodeBackgroundTileFresh(uint16_t spriteID, int pallete);
 
-        /// NEW, no C# equivalent - same reasoning as DecodeBackgroundTileFresh()
+        /// New: same reasoning as DecodeBackgroundTileFresh()
         /// above, for sprite tiles (explicit palette and bank, same as the
         /// 3-arg Tile()) - used by RenderSpriteScanline().
         static Picture DecodeSpriteTileFresh(uint16_t spriteID, int pallete, int bankID);
 
-        /// NEW, no C# equivalent - see NES_PPU.Tile.cpp's own comment for
+        /// New: see NES_PPU.Tile.cpp's own comment for
         /// the full story: bounds DecodeBackgroundTileFresh()/
         /// DecodeSpriteTileFresh()'s per-frame tile-bitmap cache to exactly
         /// one frame's lifetime. Called from OnScanlineStart()'s
@@ -99,11 +97,11 @@ namespace NES
         /// Builds the pattern-table debug view (both 4KB banks side by side).
         static Picture PatternTable(int PN);
 
-        // --- NES_PPU.NameTable.cs ---
+        // --- NES_PPU.NameTable.cpp ---
 
         /// Renders all 4 (mirrored down to 1-4 as appropriate) name tables
         /// into one 64x60-tile bitmap. Misspelling ("Tabele") kept verbatim,
-        /// matching the C# original and this port's other call sites.
+        /// matching this project's other call sites.
         static Picture NameTabele(bool display = true);
 
         /// Debug-only: same bitmap as NameTabele(), but with the current
@@ -113,12 +111,12 @@ namespace NES
         /// NameTabele()/Display() actually renders real frames from.
         static Picture NameTabeleDebugOverlay();
 
-        // --- NES_PPU.Display.cs ---
+        // --- NES_PPU.Display.cpp ---
 
         /// Renders one full frame (background + sprites-behind + sprites-in-front).
         static Picture Display();
 
-        /// NEW, no C# equivalent - renders one full frame from *whatever*
+        /// New: renders one full frame from *whatever*
         /// live PPU/OAM/CHR/palette state is currently poked into memory,
         /// by directly looping RenderBackgroundScanline()/
         /// RenderSpriteScanline() over scanlines 0-239 and compositing via
@@ -147,7 +145,7 @@ namespace NES
         /// background tiles).
         static Picture OAMDebugOverlay();
 
-        // --- NEW, no C# equivalent: real scanline/dot clock ---
+        // --- NEW: real scanline/dot clock ---
         // See NES_PPU.Display.cpp's AdvanceDots()/OnScanlineStart() for the
         // full story - this is the fix for this port having no independent
         // PPU timing at all (found via three separate real-game bugs this
@@ -168,7 +166,7 @@ namespace NES
         static int CurrentScanline() { return currentScanline; }
         static int CurrentDot() { return currentDot; }
 
-        /// NEW, no C# equivalent - registers the callback OnScanlineStart()
+        /// New: registers the callback OnScanlineStart()
         /// invokes once per real *visible* scanline (0-239), i.e. the
         /// per-scanline equivalent of Mapper::OnScanline() (see its own
         /// comment). NES_PPU deliberately has no compile-time dependency on
@@ -181,7 +179,7 @@ namespace NES
         /// from a test harness that never calls it).
         static void SetScanlineCallback(std::function<void()> callback) { scanlineCallback = std::move(callback); }
 
-        // --- NES_PPU.Scroll.cs ---
+        // --- NES_PPU.Scroll.cpp ---
 
         /// @brief PPUSCROLL ($2005) register emulation.
         ///
@@ -196,9 +194,9 @@ namespace NES
         /// registers bit-for-bit; instead `xScroll`/`yScroll` are a logical
         /// scroll position across a *doubled* nametable space (0..511 for X,
         /// 0..479 for Y - see AddxScroll()/AddyScroll()), which DrawBackground()
-        /// then blits from with wraparound. Reads always return 0, matching
-        /// the C# original (PPUSCROLL is write-only on real hardware, so a
-        /// CPU read of $2005 isn't meaningful here either).
+        /// then blits from with wraparound. Reads always return 0 (PPUSCROLL is
+        /// write-only on real hardware, so a CPU read of $2005 isn't
+        /// meaningful here either).
         static uint8_t Scroll();
         static void Scroll(uint8_t v);
 
@@ -238,10 +236,10 @@ namespace NES
         static bool ScrollXoY;
 
     private:
-        // --- NES_PPU.cs ---
+        // --- NES_PPU.cpp ---
         static Picture TempPaletteTable;
 
-        // --- NES_PPU.Tile.cs ---
+        // --- NES_PPU.Tile.cpp ---
         static Picture TempPatternTable;
         static std::unordered_map<int, BitmapWithInfo> patternArray;
 
@@ -254,7 +252,7 @@ namespace NES
         static bool isNewPattern(int startAdress, const AddrVec& PatternTable, int ID);
         static void AddTileToPatternArray(int ID, const BitmapWithInfo& bitmap);
 
-        // --- NES_PPU.NameTable.cs ---
+        // --- NES_PPU.NameTable.cpp ---
         static Picture TempNameTable;
 
         static void DrawDisplayFrame(Picture& bitmap);
@@ -262,25 +260,25 @@ namespace NES
         static void DrowOneNameTable(Picture& image, const std::vector<int>& Attribute, int Nr, uint16_t X, uint16_t Y);
         static int K(uint16_t X, uint16_t Y, int i, int j);
 
-        // --- NES_PPU.Display.cs ---
+        // --- NES_PPU.Display.cpp ---
         static Picture TempDisplay;
         static bool draw;
 
-        // --- NEW, no C# equivalent: real scanline/dot clock state, see
+        // --- NEW: real scanline/dot clock state, see
         // AdvanceDots()'s own comment above and in the .cpp.
         static int currentDot;
         static int currentScanline;
         static void OnScanlineStart(int scanline);
         static std::function<void()> scanlineCallback;
 
-        // NEW, no C# equivalent - see AdvanceDots()'s own .cpp comment on
+        // New: see AdvanceDots()'s own .cpp comment on
         // why the mapper scanline-IRQ clock now fires mid-scanline (dot 260)
         // instead of at OnScanlineStart()'s dot-0 boundary. Reset to false
         // every time currentScanline advances so the mid-scanline check
         // fires at most once per scanline.
         static bool scanlineIrqClockFired;
 
-        // --- NEW, no C# equivalent: per-scanline background rendering, see
+        // --- NEW: per-scanline background rendering, see
         // RenderBackgroundScanline()'s own .cpp comment (this is the fix
         // for Chip 'n Dale's nametable-streaming-during-scroll desync bug).
         // Replaces the old DrawBackground()/NameTabele() whole-frame-
@@ -291,7 +289,7 @@ namespace NES
         static Picture backgroundBuffer;
 
     public:
-        /// NEW, no C# equivalent - renders exactly one real on-screen
+        /// New: renders exactly one real on-screen
         /// scanline of background into the persistent backgroundBuffer (see
         /// the .cpp's own comment). Public (like ClearFreshTileCaches()
         /// above) specifically so tests/cpu/cpu_check.cpp's PPUMASK
@@ -309,7 +307,7 @@ namespace NES
 
     private:
 
-        // --- NEW, no C# equivalent: per-scanline sprite rendering, see
+        // --- NEW: per-scanline sprite rendering, see
         // RenderSpriteScanline()'s own .cpp comment. Replaces the old
         // InsertObect() whole-frame snapshot path (deleted - see its own
         // git history/comment trail) for the *real* rendered frame; one
@@ -332,7 +330,7 @@ namespace NES
         static bool Draw();
         static void Draw(bool v);
 
-        // --- NES_PPU.Scroll.cs ---
+        // --- NES_PPU.Scroll.cpp ---
 
         static int xScrollTemp;
         static int yScrollTemp;
@@ -341,7 +339,7 @@ namespace NES
         /// above: holds the *previous* frame's value while a frame is mid-render).
         static int XScroll();
         /// Sets the live X scroll and folds in PPUCTRL's X-nametable-select bit
-        /// via AddxScroll(). See NES_PPU.Scroll.cpp for the C# original's
+        /// via AddxScroll(). See NES_PPU.Scroll.cpp for the
         /// discarded-return-value bug this fixes.
         static void XScroll(int v);
         /// Latched Y scroll, see XScroll()'s comment.

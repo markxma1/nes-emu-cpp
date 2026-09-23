@@ -81,7 +81,7 @@ namespace NES
     public:
         void OnScanline() override;
 
-        // NEW, no C# equivalent - see Mapper::SerializeState()'s own
+        // New: see Mapper::SerializeState()'s own
         // comment.
         void SerializeState(std::vector<uint8_t>& out) const override;
         void DeserializeState(const uint8_t*& in, const uint8_t* end) override;

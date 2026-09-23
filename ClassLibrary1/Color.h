@@ -21,15 +21,15 @@ namespace NES_PPU
 {
     /// @brief Minimal stand-in for .NET's `System.Drawing.Color`, just the
     /// pieces Picture/NES_PPU_Palette actually use (ARGB storage, equality,
-    /// and the handful of named colors referenced from the C# source).
+    /// and the handful of named colors referenced elsewhere in the emulator).
     ///
     /// The default constructor is all-zero (A=0,R=0,G=0,B=0) - this matters:
     /// Picture's info layer uses a default-constructed Color as its "no pixel
-    /// painted here" sentinel (`info != Color()`), exactly like the C#
-    /// `infoLayer` array of `new Color()`. `Transparent()` is a *different*
+    /// painted here" sentinel (`info != Color()`), the same value the
+    /// `infoLayer` array is initialised with. `Transparent()` is a *different*
     /// value (A=0,R=255,G=255,B=255, matching .NET's Color.Transparent) and
     /// is compared against explicitly in NES_PPU_Palette - don't conflate the
-    /// two, the C# doesn't either.
+    /// two.
     struct Color
     {
         uint8_t A = 0;

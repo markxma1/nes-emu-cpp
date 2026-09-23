@@ -22,7 +22,7 @@ namespace NES
 {
     /// @brief One addressable byte in the NES's 64KB address space.
     ///
-    /// C++ port of NES.Memory/AddressSetup.cs. Every cell in NES_Memory::Memory
+    /// Every cell in NES_Memory::Memory
     /// is one of these. The four hook functions (BeforGet/AfterGet/BeforSet/AfterSet)
     /// are how memory-mapped I/O works: e.g. the PPU registers or the controller
     /// port attach a hook here so that a plain CPU read/write to that address also
@@ -37,11 +37,11 @@ namespace NES
         explicit AddressSetup(int id);
         AddressSetup(uint8_t value, int id);
 
-        /// Pure value without additional functions (mirrors the C# `value` property).
+        /// Pure value without additional functions.
         uint8_t value() const { return valueCore; }
         void value(uint8_t v) { valueCore = v; }
 
-        /// Value with additional get/set hook functions (mirrors the C# `Value` property).
+        /// Value with additional get/set hook functions.
         uint8_t Value() const override;
         void Value(uint8_t v) override;
 

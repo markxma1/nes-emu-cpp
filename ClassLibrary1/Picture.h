@@ -23,7 +23,7 @@ namespace NES_PPU
 {
     /// RotateFlip modes actually reached by the ported code (RotateNoneFlipX /
     /// RotateNoneFlipY, used to flip sprite tiles). The other System.Drawing
-    /// RotateFlipType values from the C# switch are kept for fidelity even
+    /// RotateFlipType values are kept for completeness even
     /// though nothing currently calls them.
     enum class RotateFlipType
     {
@@ -45,15 +45,14 @@ namespace NES_PPU
     };
 
     /// @brief Software framebuffer: a plain pixel grid plus an "info" overlay
-    /// layer used for debug outlines. Port of ClassLibrary1/Picture.cs.
+    /// layer used for debug outlines.
     ///
-    /// This is the one class in the port that's allowed to differ freely from
-    /// the C# shape (per the porting brief: UI/graphics primitives, not core
-    /// emulation logic) - System.Drawing.Bitmap doesn't exist in C++, so this
+    /// This is a UI/graphics primitive, not core emulation logic -
+    /// there is no platform bitmap class in plain C++, so this
     /// stores pixels itself (`std::vector<Color>`, row-major) instead of
     /// wrapping a platform bitmap, and only touches OpenCV at the very edge
     /// (`Image()`, building a cv::Mat for display) - everything else here is
-    /// plain, readable pixel math, same as the C# was.
+    /// plain, readable pixel math.
     class Picture
     {
     public:
@@ -73,7 +72,7 @@ namespace NES_PPU
         void SetInfLayerPixel(Color color, int x, int y);
         void SetPixel(Color color, int x, int y);
         /// Additive/alpha blend of `color` onto the existing pixel (see .cpp for
-        /// the C# blend formula this preserves, alpha-value quirk included).
+        /// the blend formula, alpha-value quirk included).
         void DrawPixel(Color color, int x, int y);
 
         /// Renders to a BGR cv::Mat (OpenCV's native channel order) - the one
@@ -81,13 +80,12 @@ namespace NES_PPU
         /// cv::imshow.
         cv::Mat Image() const;
 
-        // NOTE: preserved from the C# original (ClassLibrary1/Picture.cs
-        // FillRectangle): despite the parameter names, `width`/`height` here
+        // NOTE: despite the parameter names, `width`/`height` here
         // are actually treated as the bottom-right *corner* coordinates, not
         // a width/height extent (the loop is `for i=x;i<width` not
-        // `i<x+width`, unlike DrawRectangle below). Every call site in the
-        // original already passes corner coordinates, so this is a naming
-        // oddity rather than a live bug - kept verbatim rather than "fixed"
+        // `i<x+width`, unlike DrawRectangle below). Every call site
+        // already passes corner coordinates, so this is a naming
+        // oddity rather than a live bug - kept rather than "fixed"
         // to a width/height signature that would break its callers' math.
         void FillRectangle(Color color, int x, int y, int width, int height);
 
@@ -97,7 +95,7 @@ namespace NES_PPU
         void DrawRectangle(Color color, int x, int y, int width, int height);
         void DrawInfoRectangle(Color color, int x, int y, int width, int height);
         void DrawImage(const Picture& bitmap, Rect destRec, Rect srcRec);
-        /// NEW, no C# equivalent - see the .cpp definition's own comment:
+        /// See the .cpp definition's own comment:
         /// same cropped-copy shape as the additive-blend DrawImage() above,
         /// but a plain overwrite (like the 2-arg DrawNewImage()) instead of
         /// a blend.

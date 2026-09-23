@@ -125,7 +125,7 @@ namespace NES
             INES::title.clear();
     }
 
-    // NEW, no C# equivalent - see this function's own header comment.
+    // See this function's own header comment.
     // FNV-1a over the raw .nes file bytes: simple, dependency-free, and
     // more than sufficient to catch "wrong ROM" (the only thing this is
     // for) rather than being a cryptographic guarantee.

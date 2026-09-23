@@ -22,7 +22,7 @@ namespace NES
 {
     /// @brief A resolved 4-colour palette (index 0 is always transparent),
     /// plus per-colour and whole-palette "changed since last frame" flags used
-    /// for the tile-cache. Port of NES_PPU/Palette/NES_PPU_Color.cs.
+    /// for the tile-cache.
     class NES_PPU_Color
     {
     public:

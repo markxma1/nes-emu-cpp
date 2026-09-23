@@ -18,7 +18,7 @@
 
 namespace NES
 {
-    /// @brief Sets 6502 status flags after an operation. Port of CPU/CPU/Status.cs.
+    /// @brief Sets 6502 status flags after an operation.
     /// http://wiki.nesdev.com/w/index.php/Status_flags
     class Status
     {

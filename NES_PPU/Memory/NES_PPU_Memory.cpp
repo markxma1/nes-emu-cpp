@@ -48,7 +48,7 @@ namespace NES
     // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C"), real
     // hardware does *not* give those four sprite-palette slots independent
     // storage - writing $3F10 is electrically the same as writing $3F00.
-    // This function (like the C# original it's ported from) gives
+    // This function gives
     // SpritePalette[0]/[4]/[8]/[0xC] their own AddressSetup cells instead of
     // aliasing them back onto BGPalette's - a plausible-looking
     // implementation of "sprite palette" that misses this one real-hardware
@@ -65,10 +65,9 @@ namespace NES
 
     // --- NameTable + AttributeTable ---
     //
-    // LEARNING NOTE: new design, not a straight port. The C# original
-    // (NES_PPU/Memory/NES_PPU_Memory.cs) built nametable/attribute-table
-    // mirroring the way a much smaller version of this file still could:
-    // by directly reassigning which AddressSetup a CPU/PPU address's
+    // LEARNING NOTE: new design. Nametable/attribute-table mirroring
+    // used to be built the way a much smaller version of this file still
+    // could: by directly reassigning which AddressSetup a CPU/PPU address's
     // Memory[] slot points at, computed *once* from INES::arrangement right
     // after loading a ROM. That's fine as long as arrangement can never
     // change again after load - true for every ROM this project supported
