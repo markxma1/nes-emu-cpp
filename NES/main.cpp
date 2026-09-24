@@ -735,8 +735,8 @@ namespace
         {
             NES_PPU::Picture nameTable = NES::NES_Console::getNameTabeleDebugOverlay();
             cv::Mat ntImg = nameTable.Image().clone();
-            std::string header = std::string("[B] CHR view: ") +
-                (NES::NES_PPU::NameTableBankView() == 0 ? "as drawn (per row)" : "current banks only");
+            int chrView = NES::NES_PPU::ChrView();
+            std::string header = "[K] CHR view: " + (chrView < 0 ? std::string("as drawn (per row)") : "state #" + std::to_string(chrView) + " everywhere");
             cv::putText(ntImg, header, cv::Point(6, 14), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
             std::istringstream legend(NES::NES_PPU::ChrStateLegend());
             std::string line;
@@ -761,7 +761,7 @@ namespace
             palImg.copyTo(combined(cv::Rect(0, patImg.rows, palImg.cols, palImg.rows)));
             {
                 std::string label = "[K] CHR: live";
-                int st = NES::NES_PPU::PatternViewState();
+                int st = NES::NES_PPU::ChrView();
                 if (st >= 0)
                 {
                     std::istringstream lg(NES::NES_PPU::ChrStateLegend());
@@ -797,8 +797,7 @@ namespace
         switch (key)
         {
         case 'n': case 'N': nameTableWindow.toggle(); break;
-        case 'b': case 'B': NES::NES_PPU::ToggleNameTableBankView(); break;
-        case 'k': case 'K': NES::NES_PPU::CyclePatternViewState(); break;
+        case 'k': case 'K': NES::NES_PPU::CycleChrView(); break;
         case 'p': case 'P': patternTableWindow.toggle(); break;
         case 'o': case 'O': patternTablePalette = (patternTablePalette + 1) % 4; break;
         case 'c': case 'C': cpuSpeedWindow.toggle(); break;
@@ -1238,7 +1237,7 @@ int main(int argc, char** argv)
         if (src->Available() && src->Name() != "Keyboard")
             std::cout << ", G to remap the " << src->Name();
     std::cout << "." << std::endl;
-    std::cout << "Debug windows: N = Name Table (B toggles CHR view: as drawn per row / current banks), P = Pattern Table (O cycles its palette, K cycles CHR state), "
+    std::cout << "Debug windows: N = Name Table, P = Pattern Table (O cycles its palette), K = cycle the CHR state shown in the name table, pattern table and OAM viewer (as drawn, #0, #1, ...), "
                  "C = CPU Speed, V = Memory Viewer ([/] to scroll a page, {/} to jump 4K), "
                  "U = OAM Viewer (all 64 sprites at their real OAM position, including ones "
                  "parked below the red line at the bottom of the screen)"

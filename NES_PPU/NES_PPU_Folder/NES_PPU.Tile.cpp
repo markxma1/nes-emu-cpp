@@ -331,8 +331,9 @@ namespace NES
         std::shared_ptr<const ChrSnapshot> shown;
         {
             std::lock_guard<std::mutex> lock(chrPublishMutex);
-            if (patternViewState >= 0 && patternViewState < static_cast<int>(publishedChrStates.size()))
-                shown = publishedChrStates[static_cast<size_t>(patternViewState)];
+            int v = chrView;
+            if (v >= 0 && v < static_cast<int>(publishedChrStates.size()))
+                shown = publishedChrStates[static_cast<size_t>(v)];
         }
         if (shown)
         {

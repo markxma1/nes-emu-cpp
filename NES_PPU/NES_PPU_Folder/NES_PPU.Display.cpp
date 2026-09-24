@@ -142,17 +142,23 @@ namespace NES
     std::vector<std::shared_ptr<const NES_PPU::ChrSnapshot>> NES_PPU::frameChrStates;
     std::string NES_PPU::chrLegend;
     std::function<std::string()> NES_PPU::chrDescriber;
-    int NES_PPU::nameTableBankView = std::getenv("NES_BANK_VIEW_LIVE") ? 1 : 0;
+    std::atomic<int> NES_PPU::chrView{-1};
     std::mutex NES_PPU::chrPublishMutex;
     std::vector<std::shared_ptr<const NES_PPU::ChrSnapshot>> NES_PPU::publishedChrStates;
-    int NES_PPU::patternViewState = -1;
 
-    void NES_PPU::CyclePatternViewState()
+    void NES_PPU::CycleChrView()
     {
         std::lock_guard<std::mutex> lock(chrPublishMutex);
-        patternViewState++;
-        if (patternViewState >= static_cast<int>(publishedChrStates.size()))
-            patternViewState = -1;
+        int next = chrView + 1;
+        chrView = (next >= static_cast<int>(publishedChrStates.size())) ? -1 : next;
+    }
+
+    std::shared_ptr<const NES_PPU::ChrSnapshot> NES_PPU::ForcedChrState()
+    {
+        int v = chrView;
+        if (v >= 0 && v < static_cast<int>(frameChrStates.size()))
+            return frameChrStates[static_cast<size_t>(v)];
+        return nullptr;
     }
 
     // The CHR state in effect at scanline y: the last one taken at or before it.
@@ -832,9 +838,11 @@ namespace NES
     // sprite's scanline was drawn (falls back to the live banks).
     NES_PPU::Picture NES_PPU::DecodeSpriteForViewer(uint16_t id, int palette, int bank, int y)
     {
-        if (nameTableBankView == 0)
-            if (auto st = ChrStateForScanline(y))
-                return DecodeTileFromChr(*st, bank * 0x1000 + id * 16, NES_PPU_Palette::getSpriteColorPalette(palette));
+        auto st = ForcedChrState();
+        if (!st)
+            st = ChrStateForScanline(y);
+        if (st)
+            return DecodeTileFromChr(*st, bank * 0x1000 + id * 16, NES_PPU_Palette::getSpriteColorPalette(palette));
         return DecodeSpriteTileFresh(id, palette, bank);
     }
 

@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <memory>
@@ -103,16 +104,15 @@ namespace NES
         /// Forget which CHR state each nametable row was drawn with.
         static void ClearChrRowSnapshots() { for (auto& nt : rowChrSnapshot) for (auto& r : nt) r.reset(); }
         static void SetChrDescriptionCallback(std::function<std::string()> cb) { chrDescriber = std::move(cb); }
-        /// Nametable viewer: 0 = each tile row decoded with the CHR banks it was
-        /// drawn with, 1 = everything with the CHR banks active right now.
-        static void ToggleNameTableBankView() { nameTableBankView = 1 - nameTableBankView; }
-        static int NameTableBankView() { return nameTableBankView; }
-        /// Pattern-table window: cycle live -> CHR state #0 -> #1 ... -> live.
-        static void CyclePatternViewState();
+        /// One key for all debug viewers (name table, pattern table, OAM):
+        /// -1 = as drawn (name table / OAM decode each row/sprite with the CHR
+        /// state of its scanline; pattern table shows the live banks), then
+        /// 0, 1, 2 ... = force that CHR state of the frame everywhere.
+        static void CycleChrView();
+        static void SetChrView(int v) { chrView = v; }
+        static int ChrView() { return chrView; }
         /// Sprite tile decoded for the debug viewers (see .cpp).
         static Picture DecodeSpriteForViewer(uint16_t id, int palette, int bank, int y);
-        /// -1 = live, else the CHR state index shown in the pattern window.
-        static int PatternViewState() { return patternViewState; }
         /// One line per CHR state of the last drawn frame ("#1 from line 190: R0=..").
         static std::string ChrStateLegend();
 
@@ -397,10 +397,10 @@ namespace NES
         static std::vector<std::shared_ptr<const ChrSnapshot>> frameChrStates;
         static std::string chrLegend;
         static std::function<std::string()> chrDescriber;
-        static int nameTableBankView;
+        static std::atomic<int> chrView;
+        static std::shared_ptr<const ChrSnapshot> ForcedChrState(); // frameChrStates[chrView], CPU thread only
         static std::vector<std::shared_ptr<const ChrSnapshot>> publishedChrStates; // for the UI thread
         static std::mutex chrPublishMutex; // guards chrLegend + publishedChrStates
-        static int patternViewState;   // -1 = live pattern tables, else index into publishedChrStates
         static Picture DecodeTileFromChr(const ChrSnapshot& chr, int startAddress, const NES_PPU_Color& color);
         static std::shared_ptr<const ChrSnapshot> ChrStateForScanline(int y);
         static void TakeChrSnapshotIfNeeded(int scanline);

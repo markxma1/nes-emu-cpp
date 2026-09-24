@@ -223,6 +223,8 @@ namespace
         while (NES::NES_PPU::CurrentScanline() != 5)
             NES::NES_PPU::AdvanceDots(1);
         NES::NES_PPU::Color drawn = NES::NES_PPU::DecodeBackgroundTileFresh(kTile, 0).GetPixel(0, 0);
+        while (NES::NES_PPU::CurrentScanline() != 30)
+            NES::NES_PPU::AdvanceDots(1);
 
         // Later in the frame the banks change: the tile now decodes as colour 2.
         for (int i = 0; i < 8; ++i)
@@ -231,15 +233,18 @@ namespace
             NES_PPU_Memory::PatternTableN[0][kTile * 16 + 8 + i]->Value(0xFF);
         }
         NES::NES_PPU::ClearFreshTileCaches();
+        NES::NES_PPU::NoteChrChanged();
         NES::NES_PPU::Color current = NES::NES_PPU::DecodeBackgroundTileFresh(kTile, 0).GetPixel(0, 0);
         Check(!(drawn == current), "CHR viewer test setup: old and new bank must decode differently");
+        while (NES::NES_PPU::CurrentScanline() != 33)
+            NES::NES_PPU::AdvanceDots(1); // CHR state #1 is taken at the next scanline
 
         Check(NES::NES_PPU::NameTabele(true).GetPixel(2, 2) == drawn,
               "nametable viewer: a row drawn before a CHR switch must be shown with the old banks");
-        NES::NES_PPU::ToggleNameTableBankView();
+        NES::NES_PPU::SetChrView(1);
         Check(NES::NES_PPU::NameTabele(true).GetPixel(2, 2) == current,
-              "nametable viewer: 'current banks' mode must use the banks active now");
-        NES::NES_PPU::ToggleNameTableBankView();
+              "nametable viewer: forcing CHR state #1 shows every row with that state");
+        NES::NES_PPU::SetChrView(-1);
 
         while (NES::NES_PPU::CurrentScanline() != 261)
             NES::NES_PPU::AdvanceDots(1);
@@ -273,14 +278,19 @@ namespace
         while (NES::NES_PPU::CurrentScanline() != 10)
             NES::NES_PPU::AdvanceDots(1);
         NES::NES_PPU::Color drawn = NES::NES_PPU::DecodeSpriteTileFresh(kTile, 0, 0).GetPixel(0, 0);
+        while (NES::NES_PPU::CurrentScanline() != 30)
+            NES::NES_PPU::AdvanceDots(1);
         for (int i = 0; i < 8; ++i)
         {
             NES_PPU_Memory::PatternTableN[0][kTile * 16 + i]->Value(0x00);
             NES_PPU_Memory::PatternTableN[0][kTile * 16 + 8 + i]->Value(0xFF);
         }
         NES::NES_PPU::ClearFreshTileCaches();
+        NES::NES_PPU::NoteChrChanged();
         NES::NES_PPU::Color current = NES::NES_PPU::DecodeSpriteTileFresh(kTile, 0, 0).GetPixel(0, 0);
         Check(!(drawn == current), "viewer test setup: old and new bank must decode differently");
+        while (NES::NES_PPU::CurrentScanline() != 33)
+            NES::NES_PPU::AdvanceDots(1); // CHR state #1 is taken at the next scanline
 
         Check(NES::NES_PPU::DecodeSpriteForViewer(kTile, 0, 0, 20).GetPixel(0, 0) == drawn,
               "OAM viewer: a sprite is decoded with the CHR banks active at its scanline");
@@ -297,25 +307,24 @@ namespace
         NES_PPU_Register::PPUCTRL.S(false);
         Check(NES::NES_PPU::OAMDebugOverlay().GetPixel(30, 20) == drawn,
               "OAM viewer overlay: sprite drawn with the CHR state of its scanline");
-        NES::NES_PPU::ToggleNameTableBankView();
+        NES::NES_PPU::SetChrView(1);
         Check(NES::NES_PPU::OAMDebugOverlay().GetPixel(30, 20) == current,
-              "OAM viewer overlay: 'current banks' mode draws the live banks");
-        NES::NES_PPU::ToggleNameTableBankView();
-        NES::NES_PPU::ToggleNameTableBankView();
+              "OAM viewer overlay: forcing CHR state #1 draws sprites with that state");
         Check(NES::NES_PPU::DecodeSpriteForViewer(kTile, 0, 0, 20).GetPixel(0, 0) == current,
-              "OAM viewer: 'current banks' mode uses the live banks");
-        NES::NES_PPU::ToggleNameTableBankView();
+              "OAM viewer: forcing CHR state #1 uses that state");
+        NES::NES_PPU::SetChrView(-1);
 
         while (NES::NES_PPU::CurrentScanline() != 261)
             NES::NES_PPU::AdvanceDots(1);
         NES::NES_PPU::Display(); // what RenderFrame() does at frame end: publishes the CHR states
-        NES::NES_PPU::CyclePatternViewState();
-        Check(NES::NES_PPU::PatternViewState() == 0, "pattern window: first K press selects CHR state #0");
+        NES::NES_PPU::CycleChrView();
+        Check(NES::NES_PPU::ChrView() == 0, "K: first press selects CHR state #0 in all viewers");
         Check(NES::NES_PPU::PatternTable(0).GetPixel(kTile % 16 * 8, kTile / 16 * 8) == NES_PPU_Palette::getPalette(0).color[1],
               "pattern window: CHR state #0 shows the tile as it was during the frame (colour 1)");
-        NES::NES_PPU::CyclePatternViewState();
-        while (NES::NES_PPU::PatternViewState() != -1)
-            NES::NES_PPU::CyclePatternViewState();
+        NES::NES_PPU::CycleChrView();
+        Check(NES::NES_PPU::ChrView() == 1, "K: second press selects CHR state #1");
+        while (NES::NES_PPU::ChrView() != -1)
+            NES::NES_PPU::CycleChrView();
         NES_PPU_Memory::BGPalette[1]->Value(0x0F);
         NES_PPU_Memory::BGPalette[2]->Value(0x0F);
     }

@@ -353,8 +353,10 @@ namespace NES
                 // Decode with the CHR state this row was last drawn with
                 // (e.g. the game banks above an MMC3 status-bar split, not
                 // the status-bar banks that are active right now).
-                const auto& snap = rowChrSnapshot[static_cast<size_t>(Nr)][static_cast<size_t>(k / 32)];
-                Picture temp = (snap && nameTableBankView == 0) ? DecodeBackgroundTileFromSnapshot(static_cast<uint16_t>(t), c, *snap)
+                std::shared_ptr<const ChrSnapshot> snap = ForcedChrState();
+                if (!snap)
+                    snap = rowChrSnapshot[static_cast<size_t>(Nr)][static_cast<size_t>(k / 32)];
+                Picture temp = snap ? DecodeBackgroundTileFromSnapshot(static_cast<uint16_t>(t), c, *snap)
                                     : DecodeBackgroundTileFresh(static_cast<uint16_t>(t), c);
                 image.DrawImage(temp, j * 8, i * 8);
             }
