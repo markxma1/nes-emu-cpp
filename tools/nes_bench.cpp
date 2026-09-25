@@ -96,8 +96,8 @@ int main(int argc, char** argv)
     // Resolve the ROM before changing directory (the palette asset lives next to the binary).
     char abs[4096];
     const std::string romPath = realpath(rom.c_str(), abs) ? abs : rom;
+    NES::Profiler::InitFromEnvironment(); // before changing folder: a relative NES_PROFILE path stays where you started
     ChdirToExecutableDir();
-    NES::Profiler::InitFromEnvironment();
 
     NES::NES_Console::INIT();
     NES::NES_Console::LoadRom(romPath);

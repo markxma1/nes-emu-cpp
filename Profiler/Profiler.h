@@ -40,6 +40,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace NES
 {
@@ -262,7 +263,16 @@ namespace NES
             // Create every static the dump needs *before* registering the atexit handler:
             // statics are destroyed in reverse order of construction, so anything created
             // later would already be gone when Dump() runs at exit.
-            detail::OutputPath() = path;
+            // A relative file name is taken relative to where the program was started, not to a folder
+            // the program may change into later.
+            std::string full = path;
+            if (!full.empty() && full[0] != '/')
+            {
+                char cwd[4096];
+                if (getcwd(cwd, sizeof(cwd)))
+                    full = std::string(cwd) + "/" + full;
+            }
+            detail::OutputPath() = full;
             detail::Lock();
             detail::AllBuffers();
             detail::AllHot();

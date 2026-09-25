@@ -87,10 +87,54 @@ shows the hidden "0-1" world if that byte is `$FF`. `NES_RAM_INIT=ff` or `NES_RA
 ## Speed and profiling
 
 `build/nes-bench ROM.nes [frames] [input.txt]` runs a ROM without a window and without the speed limit and
-prints how many times faster than a real NES it ran; `NES_BENCH_RENDER_EVERY=N` draws only every Nth frame
-(0 = never; game state stays identical, see `NES_PPU::SetRenderPixels`). `NES_PROFILE=trace.json` records
-scoped timers (`Profiler/Profiler.h`); `python3 tools/profile_report.py trace.json` prints a table and writes
-timeline pictures.
+prints how many times faster than a real NES it ran (`input.txt` uses the same `frame BUTTON 0|1` lines as
+`NES_PLAYBACK_INPUT`).
+
+### The built-in timers, step by step
+
+The code contains small scoped timers (see `Profiler/Profiler.h`): a timer starts when a block is entered and
+stops when it is left, and stores its name, a unique id, the thread and two free numbers (for example the
+scanline). They record **nothing** unless you switch them on, so normal runs are not slowed down.
+
+```sh
+# 1. record: set NES_PROFILE to a file name and run the emulator. Two ways:
+
+# a) without a window and without the speed limit (best for finding slow code):
+NES_PROFILE=trace.json ./build/nes-bench path/to/game.nes 1500
+
+# b) the normal emulator with window (the trace is written when you quit with Esc):
+NES_PROFILE=trace.json ./build/nes-emu path/to/game.nes
+
+# 2. evaluate it (needs Pillow: `sudo pacman -S python-pillow` or `pip install pillow`):
+python3 tools/profile_report.py trace.json
+```
+
+Run both in the project folder. `trace.json` is created right there (a relative name is taken relative to
+where you started the program), together with `trace.json.summary.json`. The report then prints a table and
+writes two pictures next to it:
+
+- **the table**: per event name how often it ran, total and mean time, the slowest call and the share of the
+  wall time. Below it the "hot" totals of code that runs millions of times per second.
+- `trace.json.frames.png`: the duration of every emulated frame over time; the red line is a real NES frame
+  (16.64 ms). Spikes are hitches.
+- `trace.json.timeline.png`: what runs when, per thread (`cpu`, `ui`); a bar is one call, bars underneath are
+  calls made inside it. By default it shows 100 ms. Choose the part you want:
+
+```sh
+python3 tools/profile_report.py trace.json --from 2000 --to 2100        # window in ms since start
+python3 tools/profile_report.py trace.json --name render_background_scanline --a-min 100 --a-max 140
+```
+
+`--name` shows only one event kind, `--a-min/--a-max` filter by the first free number (the scanline for the
+rendering events). You can also open `trace.json` in <https://ui.perfetto.dev> for an interactive view.
+
+**Adding your own timer** in the C++ code: `#include "Profiler.h"`, then at the top of the function or block
+`NES_PROFILE_SCOPE("my_function", someNumber);` (or `NES_PROFILE_HOT("name");` for code that runs extremely
+often, which only adds up totals). Rebuild, record again - the new name shows up in the table.
+
+Other switches for measuring: `NES_BENCH_RENDER_EVERY=N` with `nes-bench` draws only every Nth frame
+(0 = never; game state stays identical, see `NES_PPU::SetRenderPixels`), and `NES_BENCH_RAM_HASH=1` prints a
+fingerprint of the CPU RAM (equal fingerprints = same game state).
 
 ### Finding the slow parts with `gprof` (step by step)
 
