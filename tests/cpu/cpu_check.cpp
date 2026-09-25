@@ -192,6 +192,56 @@ namespace
         Check(NES_Memory::Memory[0x9000]->value() == 6, "MMC3: a different bank is copied");
     }
 
+    /// With picture rendering off (NES_PPU::SetRenderPixels(false)) the sprite-0-hit flag must still be
+    /// raised on the right scanline, because games poll it (status bars, split screens).
+    void TestSprite0HitWorksWithoutPictureRendering()
+    {
+        NES_PPU_Register::PPUCTRL.B(false);
+        NES_PPU_Register::PPUCTRL.S(false);
+        NES_PPU_Register::PPUCTRL.H(false);
+        NES_PPU_Register::PPUMASK.b(true);
+        NES_PPU_Register::PPUMASK.s(true);
+        NES_PPU_Register::PPUMASK.m(true);
+        NES_PPU_Register::PPUMASK.M(true);
+        constexpr uint16_t kTile = 215;
+        for (int i = 0; i < 8; ++i)
+        {
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + i]->Value(0xFF);
+            NES_PPU_Memory::PatternTableN[0][kTile * 16 + 8 + i]->Value(0x00);
+        }
+        for (size_t k = 0; k < 960; ++k)
+            NES_PPU_Memory::NameTableN[0][k]->Value(kTile);
+        for (auto& cell : NES_PPU_Memory::AttributeTableN[0])
+            cell->Value(0);
+        NES_PPU_Memory::BGPalette[1]->Value(0x16);
+        NES_PPU_Memory::SpritePalette[1]->Value(0x21);
+        NES::NES_PPU::xScroll = 0;
+        NES::NES_PPU::yScroll = 0;
+        for (int i = 0; i < 256; ++i)
+            NES_Memory::Memory[0x0200 + static_cast<size_t>(i)]->value(0xFF);
+        NES_Memory::Memory[0x0200]->value(49);      // sprite 0: top row on scanline 50
+        NES_Memory::Memory[0x0201]->value(kTile);
+        NES_Memory::Memory[0x0202]->value(0);
+        NES_Memory::Memory[0x0203]->value(20);
+        NES_PPU_OAM::OAMDMA(0x02);
+        NES_CPU::pendingExtraCycles = 0;
+
+        NES::NES_PPU::SetRenderPixels(false);
+        while (NES::NES_PPU::CurrentScanline() != 261)
+            NES::NES_PPU::AdvanceDots(1);
+        NES_PPU_Register::PPUSTATUS.S(false);
+        while (NES::NES_PPU::CurrentScanline() != 40)
+            NES::NES_PPU::AdvanceDots(1);
+        Check(!NES_PPU_Register::PPUSTATUS.S(), "sprite 0 hit: not raised before sprite 0's first scanline (no picture rendering)");
+        while (NES::NES_PPU::CurrentScanline() != 60)
+            NES::NES_PPU::AdvanceDots(1);
+        Check(NES_PPU_Register::PPUSTATUS.S(), "sprite 0 hit: still raised without picture rendering");
+        NES::NES_PPU::SetRenderPixels(true);
+        NES_PPU_Register::PPUSTATUS.S(false);
+        NES_PPU_Memory::BGPalette[1]->Value(0x0F);
+        NES_PPU_Memory::SpritePalette[1]->Value(0x0F);
+    }
+
     /// A 6502 interrupt pushes the status register as it was *before* the
     /// interrupt and only then sets the I flag, so RTI brings the old I flag
     /// back. Setting I first left it set after every NMI, which made the
@@ -1583,10 +1633,16 @@ int main()
 {
     NES_Console::INIT();
 
+    // Power-on RAM is all zero by default: some programs read RAM they never wrote (a Super Mario Bros.
+    // dump starts in the hidden 0-1 world if $013E holds $FF).
+    Check(NES_Memory::Memory[0x013E]->value() == 0 && NES_Memory::Memory[0x075F]->value() == 0 && NES_Memory::Memory[0x0004]->value() == 0,
+          "RAM: CPU RAM must be zero at power-on");
+
     TestNmiIsNotBlockedByRunningHandler();
     TestNmiRestoresInterruptFlagOnRti();
     TestEnablingNmiInVblankRaisesNmi();
     TestAttributePaletteForTileMatchesFullTable();
+    TestSprite0HitWorksWithoutPictureRendering();
     TestSpritePaletteMirrorsBackdrop();
     TestBackdropColourShowsThroughTransparentBackground();
     TestLeftColumnMask();

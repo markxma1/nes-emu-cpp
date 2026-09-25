@@ -104,6 +104,13 @@ namespace NES
         /// detail) since it's directly exercised by
         /// tests/cpu/cpu_check.cpp's regression test for this cache.
         static void ClearFreshTileCaches();
+        /// Turns drawing of the picture on or off (default on). Off: the emulation, all registers, interrupts and the
+        /// sprite-0-hit flag behave exactly the same, but no frame is composed - much faster when only RAM or
+        /// occasional frames are needed (e.g. an agent that looks at the picture every Nth frame). Takes effect
+        /// from the next frame.
+        static void SetRenderPixels(bool on) { renderPixels = on; }
+        /// True while pictures are drawn.
+        static bool RenderPixels() { return renderPixels.load(std::memory_order_relaxed); }
         /// Called by the mapper whenever it rewrites CHR pattern data.
         static void NoteChrChanged() { chrChangedSinceSnapshot = true; }
         /// Forget which CHR state each nametable row was drawn with.
@@ -396,6 +403,9 @@ namespace NES
         static bool splitPrevRendered;
         static int splitStartLine;   // first scanline drawn from splitV
         static void ApplySplitScroll(int scanline);
+        static std::atomic<bool> renderPixels;
+        /// True when sprite 0 is on `scanline` and a sprite-0 hit is still possible this frame.
+        static bool Sprite0MayHitOn(int scanline);
         /// Cached background tile, by reference (valid until the next ClearFreshTileCaches()).
         static const Picture& BackgroundTileRef(uint16_t tileID, int palette);
         /// Draws one background scanline straight from the tile rows (scroll 0..511 only).

@@ -381,6 +381,20 @@ namespace NES
     // fire changed here, not *what* they do). Scanline numbering matches
     // http://wiki.nesdev.com/w/index.php/PPU_rendering exactly: 0-239
     // visible, 240 post-render (idle), 241-260 vblank, 261 pre-render.
+    std::atomic<bool> NES_PPU::renderPixels{true};
+
+    // True when sprite 0 overlaps `scanline` and a hit could still be reported this frame.
+    bool NES_PPU::Sprite0MayHitOn(int scanline)
+    {
+        if (!NES_PPU_Register::PPUMASK.s() || !NES_PPU_Register::PPUMASK.b() || NES_PPU_Register::PPUSTATUS.S())
+            return false;
+        if (NES_PPU_OAM::SpriteYc.empty())
+            return false;
+        int top = NES_PPU_OAM::SpriteYc[0]->Value() + 1;
+        int height = NES_PPU_Register::PPUCTRL.H() ? 16 : 8;
+        return scanline >= top && scanline < top + height;
+    }
+
     void NES_PPU::OnScanlineStart(int scanline)
     {
         if (scanline >= 0 && scanline <= 239)
@@ -391,11 +405,15 @@ namespace NES
             // blend needs a non-stale, freshly black baseline every frame,
             // not last frame's leftover pixels. Same reasoning for the two
             // sprite buffers (see RenderSpriteScanline()).
+            const bool drawPixels = renderPixels.load(std::memory_order_relaxed);
             if (scanline == 0)
             {
-                backgroundBuffer.Clear();
-                spriteBehindBuffer.Clear();
-                spriteFrontBuffer.Clear();
+                if (drawPixels)
+                {
+                    backgroundBuffer.Clear();
+                    spriteBehindBuffer.Clear();
+                    spriteFrontBuffer.Clear();
+                }
                 ClearFreshTileCaches();
             }
 
@@ -417,6 +435,17 @@ namespace NES
             // mapper's bank/CHR changes from the earlier IRQ are already
             // in effect by the time this scanline's own row is decoded.
             ApplySplitScroll(scanline);
+            if (!drawPixels)
+            {
+                // No picture wanted: only the lines where sprite 0 can hit the background still
+                // have to be drawn, because games poll the sprite-0-hit flag ($2002 bit 6).
+                if (!Sprite0MayHitOn(scanline))
+                    return;
+                backgroundBuffer.FillRectangle(Color(), 0, scanline, 256, scanline + 1); // no stale pixels
+                RenderBackgroundScanline(scanline);
+                RenderSpriteScanline(scanline);
+                return;
+            }
             TakeChrSnapshotIfNeeded(scanline);
             {
                 NES_PROFILE_SCOPE("render_background_scanline", scanline);

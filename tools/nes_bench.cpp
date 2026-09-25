@@ -19,7 +19,8 @@
 ///
 /// `nes-bench ROM.nes [frames] [input.txt]` prints frames per second and how many times
 /// faster than a real NES (60.1 fps) the emulator ran. The optional input file uses the
-/// same "frame BUTTON 0|1" lines as `NES_PLAYBACK_INPUT`. This is the starting point for
+/// same "frame BUTTON 0|1" lines as `NES_PLAYBACK_INPUT`. Set `NES_BENCH_RENDER_EVERY=N` to draw only every
+/// Nth frame (0 = never), see NES_PPU::SetRenderPixels(). This is the starting point for
 /// running the emulator without any UI, e.g. to let a learning agent play many times
 /// faster than real time.
 #include "INES.h"
@@ -29,6 +30,8 @@
 #include "NES_CPU.h"
 #include "NES_GamePad.h"
 #include "Profiler.h"
+#include "NES_PPU.h"
+#include "NES_Memory.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <chrono>
@@ -72,6 +75,7 @@ int main(int argc, char** argv)
     }
     const std::string rom = argv[1];
     const long long frames = argc > 2 ? std::atoll(argv[2]) : 1000;
+    const long long renderEvery = std::getenv("NES_BENCH_RENDER_EVERY") ? std::atoll(std::getenv("NES_BENCH_RENDER_EVERY")) : -1;
 
     std::map<long long, std::vector<std::pair<std::string, bool>>> events;
     if (argc > 3)
@@ -105,6 +109,8 @@ int main(int argc, char** argv)
         if (it != events.end())
             for (const auto& [button, down] : it->second)
                 SetButton(button, down);
+        if (renderEvery >= 0) // render only every Nth frame (0 = never)
+            NES::NES_PPU::SetRenderPixels(renderEvery > 0 && (frame + 1) % renderEvery == 0);
         if (frame >= frames)
             NES::Interrupt::POWER = false;
     };
@@ -115,6 +121,13 @@ int main(int argc, char** argv)
     long long done = NES::NES_CPU::completedFrames.load();
     if (const char* dump = std::getenv("NES_BENCH_DUMP")) // picture of the last frame, to check what was measured
         cv::imwrite(dump, NES::NES_Console::getDisplay().Image());
+    if (std::getenv("NES_BENCH_RAM_HASH")) // fingerprint of CPU RAM: equal hashes = same game state
+    {
+        uint64_t h = 1469598103934665603ull;
+        for (int a = 0; a < 0x800; a++)
+            h = (h ^ NES::NES_Memory::Memory[static_cast<size_t>(a)]->value()) * 1099511628211ull;
+        std::cout << "ram hash " << std::hex << h << std::dec << std::endl;
+    }
     std::cout << done << " frames in " << sec << " s = " << done / sec << " fps = " << done / sec / 60.0988
               << "x real time (" << sec / done * 1000 << " ms/frame)" << std::endl;
     return 0;

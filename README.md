@@ -57,6 +57,21 @@ Optional: `cmake -DNES_SANITIZER=address` (or `thread`, `undefined`) for sanitiz
 doxygen Doxyfile        # writes docs/html/index.html
 ```
 
+## Power-on RAM
+
+CPU RAM starts as all zero (like FCEUX). Real consoles start with unpredictable contents, and a few
+programs read RAM they never wrote: one Super Mario Bros. dump takes its starting world from `$013E` and
+shows the hidden "0-1" world if that byte is `$FF`. `NES_RAM_INIT=ff` or `NES_RAM_INIT=pattern`
+(`00 00 00 00 FF FF FF FF ...`) start with other contents, useful to find such programs.
+
+## Speed and profiling
+
+`build/nes-bench ROM.nes [frames] [input.txt]` runs a ROM without a window and without the speed limit and
+prints how many times faster than a real NES it ran; `NES_BENCH_RENDER_EVERY=N` draws only every Nth frame
+(0 = never; game state stays identical, see `NES_PPU::SetRenderPixels`). `NES_PROFILE=trace.json` records
+scoped timers (`Profiler/Profiler.h`); `python3 tools/profile_report.py trace.json` prints a table and writes
+timeline pictures.
+
 ## Controls and debug windows
 
 Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:

@@ -244,6 +244,8 @@ namespace NES
     void NES_Console::RenderFrame()
     {
         NES_PROFILE_SCOPE("render_frame");
+        if (!NES_PPU::RenderPixels())
+            return; // no picture wanted (see NES_PPU::SetRenderPixels())
         NES_PPU::Picture frame = NES_PPU::Display();
 
         // See getNameTabeleDebugOverlay()/setNameTableDebugWindowVisible()'s

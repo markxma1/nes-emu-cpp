@@ -16,10 +16,32 @@
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "EnvFlag.h"
 #include "NES_Memory.h"
+#include <string>
 #include <cstdlib>
 
 namespace NES
 {
+    namespace
+    {
+        /// Power-on content of the 2 KB CPU RAM. Real consoles start with unpredictable
+        /// contents, but some programs read RAM they never wrote (one Super Mario Bros.
+        /// dump takes its starting world from $013E and shows the hidden "0-1" world if
+        /// that byte is $FF). Default: all zero, like the reference emulator FCEUX.
+        /// `NES_RAM_INIT=pattern` gives 00 00 00 00 FF FF FF FF ..., `NES_RAM_INIT=ff` all $FF,
+        /// handy to find programs that depend on it.
+        uint8_t InitialRamByte(int address)
+        {
+            static const char* mode = NES_GETENV("NES_RAM_INIT");
+            if (!mode)
+                return 0x00;
+            if (std::string(mode) == "ff")
+                return 0xFF;
+            if (std::string(mode) == "pattern")
+                return (address & 4) == 0 ? 0x00 : 0xFF;
+            return 0x00;
+        }
+    }
+
     std::vector<std::shared_ptr<AddressSetup>> NES_Memory::Memory;
     std::vector<std::shared_ptr<AddressSetup>> NES_Memory::ZeroPage;
     std::vector<std::shared_ptr<AddressSetup>> NES_Memory::Stack;
@@ -182,7 +204,9 @@ namespace NES
                 Memory.push_back(Memory[i - 0x1000]);
             else if (i >= 0x1800 && i <= 0x1FFF)
                 Memory.push_back(Memory[i - 0x1800]);
-            else if ((i & 4) == 0 || (i < 0x800 && NES_GETENV("NES_RAM_ZERO")))
+            else if (i < 0x0800)
+                Memory.push_back(std::make_shared<AddressSetup>(InitialRamByte(i), i));
+            else if ((i & 4) == 0)
                 Memory.push_back(std::make_shared<AddressSetup>(static_cast<uint8_t>(0x00), i));
             else
                 Memory.push_back(std::make_shared<AddressSetup>(static_cast<uint8_t>(0xFF), i));
