@@ -36,19 +36,26 @@ namespace NES
     class BitmapWithInfo
     {
     public:
+        /// True if this tile was (re)built since it was last drawn.
         bool isNew;
+        /// The palette slots (0-3) that the pattern actually uses.
         std::vector<uint8_t> cID;
 
+        /// Creates a cache entry from the rendered tile, its raw 2-bit pattern data and the used palette slots.
         BitmapWithInfo(const ::NES_PPU::Picture& bitmap, std::array<std::array<uint8_t, 8>, 8> pattern,
                         std::vector<uint8_t> cID, bool isNew = true)
             : isNew(isNew), cID(std::move(cID)), bitmap(bitmap), pattern(pattern)
         {
         }
 
+        /// Returns a copy of the rendered 8x8 tile picture.
         ::NES_PPU::Picture Image() const { return bitmap; }
+        /// Replaces the rendered tile picture.
         void Image(const ::NES_PPU::Picture& v) { bitmap = v; }
 
+        /// The raw 2-bit-per-pixel pattern data (8 rows of 8 pixels).
         const std::array<std::array<uint8_t, 8>, 8>& Pattern() const { return pattern; }
+        /// Replaces the raw pattern data.
         void Pattern(std::array<std::array<uint8_t, 8>, 8> v) { pattern = std::move(v); }
 
     private:

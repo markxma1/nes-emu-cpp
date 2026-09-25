@@ -54,6 +54,7 @@ namespace NES
         bool Available() const override { return !devices.empty(); }
         std::string Name() const override;
 
+        /// Gamepads support button remapping, so this returns true.
         bool SupportsRemap() const override { return true; }
         std::string PollForCapture() override;
         void Bind(const std::string& button, const std::string& label) override;

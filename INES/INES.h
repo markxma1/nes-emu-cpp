@@ -26,6 +26,7 @@ namespace NES
     class INES
     {
     public:
+        /// TV system flag from the iNES header (NTSC, PAL or dual-compatible).
         enum class TV { NTS, PAL, DUAL };
 
         /// 0xx0: vertical arrangement/horizontal mirroring (CIRAM A10 = PPU A11)
@@ -39,6 +40,7 @@ namespace NES
         /// ("Single-screen mirroring").
         enum class Mirror { vertical, horisontal, four_screen, single_screen_a, single_screen_b };
 
+        /// Current nametable mirroring; set from the header and possibly changed at runtime by a mapper.
         static Mirror arrangement;
 
         /// Size of PRG ROM in 16 KB units.
@@ -71,6 +73,7 @@ namespace NES
         /// Upper nybble of mapper number.
         static int Hmapper;
 
+        /// Cartridge is for the Vs. UniSystem arcade hardware.
         static bool VSUnisystem;
         /// PlayChoice-10 (8KB of Hint Screen data stored after CHR data).
         static bool PlayChoice;
@@ -84,6 +87,7 @@ namespace NES
         /// Board has bus conflicts.
         static bool Boardconflicts;
 
+        /// Parses the 16-byte iNES header in `b` and fills the static fields of this class.
         static void ReadeHeader(const std::vector<uint8_t>& b);
 
     private:

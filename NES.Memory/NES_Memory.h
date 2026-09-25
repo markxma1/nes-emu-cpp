@@ -48,25 +48,41 @@ namespace NES
     class NES_Memory
     {
     public:
+        /// All 65536 cells of the CPU address space, indexed by address.
         static std::vector<std::shared_ptr<AddressSetup>> Memory;
+        /// Cells $0000-$00FF.
         static std::vector<std::shared_ptr<AddressSetup>> ZeroPage;
+        /// Cells $0100-$01FF.
         static std::vector<std::shared_ptr<AddressSetup>> Stack;
+        /// Cells $0200-$07FF.
         static std::vector<std::shared_ptr<AddressSetup>> RAM;
+        /// Cells $2000-$2007 (PPU registers).
         static std::vector<std::shared_ptr<AddressSetup>> PPU;
+        /// Cells $4000-$4015 (APU registers).
         static std::vector<std::shared_ptr<AddressSetup>> APU;
+        /// Cells $4016-$4017 (controller ports).
         static std::vector<std::shared_ptr<AddressSetup>> Joystick;
+        /// Cells $4018-$401F (normally disabled APU/IO test registers).
         static std::vector<std::shared_ptr<AddressSetup>> IO;
+        /// Cells $4020-$5FFF (expansion area).
         static std::vector<std::shared_ptr<AddressSetup>> EROM;
+        /// Cells $6000-$7FFF (battery/save RAM).
         static std::vector<std::shared_ptr<AddressSetup>> SRAM;
+        /// Cells $8000-$FFFF (cartridge program ROM).
         static std::vector<std::shared_ptr<AddressSetup>> PRGROM;
+        /// Cells $FFFA-$FFFB (NMI vector).
         static std::vector<std::shared_ptr<AddressSetup>> NMI;
+        /// Cells $FFFC-$FFFD (power-on/reset vector).
         static std::vector<std::shared_ptr<AddressSetup>> POR;
+        /// Cells $FFFE-$FFFF (IRQ/BRK vector).
         static std::vector<std::shared_ptr<AddressSetup>> BRK;
 
+        /// Returns the raw values (without running hooks) of the given cells, for tests and debugging.
         static std::vector<uint8_t> MemTest(const std::vector<std::shared_ptr<AddressSetup>>& list);
 
         NES_Memory();
 
+        /// Fills the region views (ZeroPage, Stack, RAM, ..., BRK) with the cells of `Memory` they alias.
         static void ResetBlocks();
 
     private:

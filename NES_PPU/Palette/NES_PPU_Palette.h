@@ -32,21 +32,30 @@ namespace NES
     class NES_PPU_Palette
     {
     public:
+        /// The 64-entry system palette (RGB value of every NES colour index), filled from the palette bitmap.
         static std::array<NES_PPU::Color, 0x40> PPUpalettes;
 
         /// `bmpPath` defaults to the relative path of the bundled palette image
         /// ("./Palletes/2C03and2C05.bmp", i.e. next to the running executable).
         explicit NES_PPU_Palette(const std::string& bmpPath = "./Palletes/2C03and2C05.bmp");
 
+        /// Palette by number: 0-3 are background palettes, 4-7 sprite palettes; anything else gives `DefaultPalette()`.
         static NES_PPU_Color getPalette(int Nr);
+        /// Fallback palette (black, red, green, blue) for out-of-range palette numbers.
         static NES_PPU_Color DefaultPalette();
+        /// Resolves background palette `start` (0-3) to RGB; colour 0 is transparent.
         static NES_PPU_Color getBGColorPalette(int start);
+        /// Resolves sprite palette `start` (0-3) to RGB; colour 0 is transparent.
         static NES_PPU_Color getSpriteColorPalette(int start);
+        /// The universal backdrop colour (palette RAM entry $3F00) as RGB.
         static NES_PPU::Color UniversalBackgroundColor();
 
         // --- NES_PPU_Palette.Check.cpp ---
+        /// True if a colour of background palette `start` changed since the last `setAllPaletesAsOld()`; also updates the per-colour flags.
         static bool BGIsNew(int start);
+        /// Same as `BGIsNew()` for sprite palette `start`.
         static bool SpriteIsNew(int start);
+        /// Clears the "changed" flag of every background and sprite palette entry.
         static void setAllPaletesAsOld();
 
     private:

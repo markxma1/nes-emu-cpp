@@ -35,14 +35,17 @@ namespace NES
         /// tile index) that callers of this struct must handle themselves.
         struct Byte1
         {
+            /// The OAM byte cell this view reads and writes.
             std::shared_ptr<AddressSetup> adress;
 
             /// Bank ($0000 or $1000) of tiles.
             bool Bank() const { return (adress->Value() & 0x01) > 0; }
+            /// Sets the bank bit (bit 0).
             void Bank(bool v) { adress->Value(static_cast<uint8_t>(adress->Value() & ~0x01)); if (v) adress->Value(static_cast<uint8_t>(adress->Value() | 0x01)); }
 
             /// Tile number of top of sprite (0 to 254; bottom half gets the next tile).
             uint8_t Number() const { return static_cast<uint8_t>(adress->Value() & 0xFE); }
+            /// Sets the tile number (bits 7-1); bit 0 is ignored.
             void Number(uint8_t v) { adress->Value(static_cast<uint8_t>((adress->Value() & ~0xFE) | (v & 0xFE))); }
         };
 
@@ -52,25 +55,31 @@ namespace NES
         /// as 0 on real hardware and are simply unmodeled here).
         struct Byte2
         {
+            /// The OAM byte cell this view reads and writes.
             std::shared_ptr<AddressSetup> adress;
 
             /// Palette (4 to 7) of sprite.
             uint8_t Palette() const { return static_cast<uint8_t>(adress->Value() & 0x3); }
+            /// Sets the palette bits (bits 1-0).
             void Palette(uint8_t v) { adress->Value(static_cast<uint8_t>(adress->Value() & ~0x3)); adress->Value(static_cast<uint8_t>(adress->Value() | (v & 0x3))); }
 
             /// Priority (0: in front of background; 1: behind background).
             bool Priority() const { return (adress->Value() & 0x20) > 0; }
+            /// Sets the priority bit (bit 5).
             void Priority(bool v) { adress->Value(static_cast<uint8_t>(adress->Value() & ~0x20)); if (v) adress->Value(static_cast<uint8_t>(adress->Value() | 0x20)); }
 
             /// Flip sprite horizontally.
             bool FlipH() const { return (adress->Value() & 0x40) > 0; }
+            /// Sets the horizontal-flip bit (bit 6).
             void FlipH(bool v) { adress->Value(static_cast<uint8_t>(adress->Value() & ~0x40)); if (v) adress->Value(static_cast<uint8_t>(adress->Value() | 0x40)); }
 
             /// Flip sprite vertically.
             bool FlipV() const { return (adress->Value() & 0x80) > 0; }
+            /// Sets the vertical-flip bit (bit 7).
             void FlipV(bool v) { adress->Value(static_cast<uint8_t>(adress->Value() & ~0x80)); if (v) adress->Value(static_cast<uint8_t>(adress->Value() | 0x80)); }
         };
 
+        /// All 256 bytes of OAM, one cell per byte.
         static std::vector<std::shared_ptr<AddressSetup>> Memory;
 
         /// Y position of top of sprite (delayed by one scanline; subtract 1
@@ -78,6 +87,7 @@ namespace NES
         static std::vector<std::shared_ptr<AddressSetup>> SpriteYc;
         /// Tile index number.
         static std::vector<Byte1> SpriteTile;
+        /// Attribute byte (palette, priority, flips) of each of the 64 sprites.
         static std::vector<Byte2> SpriteAttribute;
         /// X position of left side of sprite.
         static std::vector<std::shared_ptr<AddressSetup>> SpriteXc;

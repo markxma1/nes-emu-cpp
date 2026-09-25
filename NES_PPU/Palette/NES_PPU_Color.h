@@ -26,10 +26,14 @@ namespace NES
     class NES_PPU_Color
     {
     public:
+        /// The four RGB colours of the palette (entry 0 is transparent).
         std::array<NES_PPU::Color, 4> color{};
+        /// True if any of colours 1-3 changed since the last frame.
         bool isNewPalette = false;
+        /// Per-colour "changed since last frame" flags.
         std::array<bool, 4> isNewColor{};
 
+        /// Creates a resolved palette from its colours and change flags.
         NES_PPU_Color(std::array<NES_PPU::Color, 4> color, bool isNewPalette, std::array<bool, 4> isNewColor)
             : color(color), isNewPalette(isNewPalette), isNewColor(isNewColor)
         {

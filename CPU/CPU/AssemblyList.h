@@ -30,13 +30,17 @@ namespace NES
     class AssemblyList
     {
     public:
+        /// One opcode handler: a callable executing a single instruction.
         using Func = std::function<void()>;
 
+        /// Debug trace of recently executed instructions (printed on a crash or when tracing).
         static std::vector<std::string> debug;
 
         AssemblyList();
 
+        /// Read-only access to the 256-entry opcode handler table.
         const std::vector<Func>& assembly() const { return Assembly; }
+        /// Mutable access to the 256-entry opcode handler table.
         std::vector<Func>& assembly() { return Assembly; }
 
     private:

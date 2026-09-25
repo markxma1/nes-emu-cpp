@@ -110,6 +110,40 @@ namespace
         Interrupt::NMI(false);
     }
 
+    /// Writing $2000 with the NMI-enable bit going 0 -> 1 while the vblank flag
+    /// is set raises an NMI at once (games enable NMI late in vblank).
+    void TestEnablingNmiInVblankRaisesNmi()
+    {
+        NES_Memory::Memory[0xFFFA]->value(0x00);
+        NES_Memory::Memory[0xFFFB]->value(0x90);
+        NES_Register::PC = 0x8000;
+        NES_Register::S = 0xFD;
+        NES_Register::P.P = 0x24;
+        Interrupt::NMI(false);
+        NES_PPU_Register::PPUSTATUS.V(true);
+        NES_Memory::Memory[0x2000]->Value(0x00);
+        NES_Memory::Memory[0x2000]->Value(0x80); // 0 -> 1 inside vblank
+        Interrupt::Check(4); // end of the write instruction: too early to be seen
+        Check(NES_Register::PC == 0x8000, "NMI: an NMI enabled by a $2000 write is not taken right after that write");
+        Interrupt::Check(2); // end of the next instruction
+        Check(NES_Register::PC == 0x9000, "NMI: it is taken after the following instruction");
+        Interrupt::NMI(false);
+
+        NES_Register::PC = 0x8000;
+        NES_Register::S = 0xFD;
+        NES_Memory::Memory[0x2000]->Value(0x80); // already enabled: no new edge
+        Interrupt::Check(2);
+        Interrupt::Check(2);
+        Check(NES_Register::PC == 0x8000, "NMI: rewriting $2000 with NMI already enabled raises nothing");
+        NES_Memory::Memory[0x2000]->Value(0x00);
+        NES_PPU_Register::PPUSTATUS.V(false);
+        NES_Memory::Memory[0x2000]->Value(0x80);
+        Interrupt::Check(2);
+        Interrupt::Check(2);
+        Check(NES_Register::PC == 0x8000, "NMI: enabling NMI outside vblank raises nothing");
+        NES_Memory::Memory[0x2000]->Value(0x00);
+    }
+
     /// A 6502 interrupt pushes the status register as it was *before* the
     /// interrupt and only then sets the I flag, so RTI brings the old I flag
     /// back. Setting I first left it set after every NMI, which made the
@@ -384,6 +418,13 @@ namespace
         NES_Memory::Memory[0x4016]->Value(1);
         NES_Memory::Memory[0x4016]->Value(0);
         Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: a strobe write must restart the sequence at A");
+        // After the 8 buttons a standard controller returns 1 on every read.
+        NES_Memory::Memory[0x4016]->Value(1);
+        NES_Memory::Memory[0x4016]->Value(0);
+        for (int i = 0; i < 8; ++i)
+            NES_Memory::Memory[0x4016]->Value();
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: the 9th read returns 1 (plus open bus)");
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: every further read also returns 1");
         NES_GamePad::Player1.Button[0].second = false;
     }
 
@@ -1496,6 +1537,7 @@ int main()
 
     TestNmiIsNotBlockedByRunningHandler();
     TestNmiRestoresInterruptFlagOnRti();
+    TestEnablingNmiInVblankRaisesNmi();
     TestSpritePaletteMirrorsBackdrop();
     TestBackdropColourShowsThroughTransparentBackground();
     TestLeftColumnMask();

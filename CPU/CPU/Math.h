@@ -22,7 +22,7 @@ namespace NES
     /// @brief Shared arithmetic/logic/shift/compare implementations used by the
     /// opcode table in Assembly_6502.
     /// Named `Math` - safe in C++ since it lives in namespace NES and nothing
-    /// here collides with <cmath>.
+    /// here collides with `<cmath>`.
     class Math
     {
     public:
@@ -86,8 +86,11 @@ namespace NES
         // several non-page-cross-sensitive instructions also trigger and
         // must be filtered by opcode in Step()). Reset once per Step() call,
         // before dispatch.
+        /// Set when a branch instruction was taken (costs one extra cycle).
         static bool branchTaken;
+        /// Set when a taken branch crossed a page boundary (costs another extra cycle).
         static bool branchPageCrossed;
+        /// Clears branchTaken and branchPageCrossed; called once per CPU step.
         static void ResetBranchFlags() { branchTaken = false; branchPageCrossed = false; }
 
         // --- Unofficial/illegal 6502 opcodes.
@@ -113,11 +116,11 @@ namespace NES
         static void SRE(uint16_t a);
         /// RRA: ROR value then ADC value. Flags: N,V,Z,C.
         static void RRA(uint16_t a);
-        /// ANC: AND #imm, then copies the result's Negative flag into Carry. Flags: N,Z,C.
+        /// ANC: AND `#imm`, then copies the result's Negative flag into Carry. Flags: N,Z,C.
         static void ANC(uint8_t value);
-        /// ALR/ASR: AND #imm then LSR A. Flags: N,Z,C.
+        /// ALR/ASR: AND `#imm` then LSR A. Flags: N,Z,C.
         static void ALR(uint8_t value);
-        /// ARR: AND #imm then ROR A, but C/V are derived from bits 6/5 of the
+        /// ARR: AND `#imm` then ROR A, but C/V are derived from bits 6/5 of the
         /// result rather than the normal ROR carry-out. Flags: N,Z,C,V.
         static void ARR(uint8_t value);
         /// SBX/AXS: X = (A & X) - imm, unsigned, no borrow-in. Flags: N,Z,C.

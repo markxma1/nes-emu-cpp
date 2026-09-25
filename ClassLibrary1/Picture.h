@@ -41,7 +41,10 @@ namespace NES_PPU
     /// shape, used by the two-Rectangle DrawImage overload (scrolled blit).
     struct Rect
     {
-        int X = 0, Y = 0, Width = 0, Height = 0;
+        int X = 0;      ///< Left edge.
+        int Y = 0;      ///< Top edge.
+        int Width = 0;  ///< Width (some callers pass a right-edge coordinate instead, see DrawImage()).
+        int Height = 0; ///< Height (or bottom-edge coordinate, see Width).
     };
 
     /// @brief Software framebuffer: a plain pixel grid plus an "info" overlay
@@ -56,20 +59,35 @@ namespace NES_PPU
     class Picture
     {
     public:
+        /// Creates a blank width x height picture (all pixels default-constructed Color).
         Picture(int width, int height);
+        /// Copy constructor: copies pixels, info layer and mirror settings.
         Picture(const Picture& other);
 
+        /// True if DrawMirror() has enabled mirrored reads.
         bool HaveMirror() const { return haveMirror; }
+        /// Enables or disables mirrored reads.
         void HaveMirror(bool v) { haveMirror = v; }
 
+        /// Width in pixels.
         int Width() const { return width; }
+        /// Height in pixels.
         int Height() const { return height; }
 
-        struct SizeInfo { int Width; int Height; };
+        /// Width and height pair returned by Size().
+        struct SizeInfo
+        {
+            int Width;  ///< Width in pixels.
+            int Height; ///< Height in pixels.
+        };
+        /// Width and height together.
         SizeInfo Size() const { return { width, height }; }
 
+        /// Returns the visible pixel at (x, y): the info-layer colour if one is set, else the (possibly mirrored) image pixel; Transparent() if out of range.
         Color GetPixel(int x, int y) const;
+        /// Sets a pixel on the info (debug outline) layer, which is drawn on top of the image; out-of-range is ignored.
         void SetInfLayerPixel(Color color, int x, int y);
+        /// Overwrites the image pixel at (x, y); out-of-range is ignored.
         void SetPixel(Color color, int x, int y);
         /// Additive/alpha blend of `color` onto the existing pixel (see .cpp for
         /// the blend formula, alpha-value quirk included).
@@ -87,13 +105,20 @@ namespace NES_PPU
         // already passes corner coordinates, so this is a naming
         // oddity rather than a live bug - kept rather than "fixed"
         // to a width/height signature that would break its callers' math.
+        /// Fills a rectangle with `color` (see the note above about the corner-coordinate parameters).
         void FillRectangle(Color color, int x, int y, int width, int height);
 
+        /// Blends `bitmap` onto this picture with its top-left at (x, y), pixel by pixel via DrawPixel().
         void DrawImage(const Picture& bitmap, int x, int y);
+        /// Copies `bitmap` onto this picture with its top-left at (x, y), overwriting existing pixels (no blending).
         void DrawNewImage(const Picture& bitmap, int x, int y);
+        /// Turns on mirrored reads: pixels at or beyond (x, y) read back from the image shifted by (x, y).
         void DrawMirror(int x, int y);
+        /// Draws a one-pixel rectangle outline of the given size at (x, y) on the image.
         void DrawRectangle(Color color, int x, int y, int width, int height);
+        /// Like DrawRectangle(), but on the info layer, so it can be shown as a debug outline over the image.
         void DrawInfoRectangle(Color color, int x, int y, int width, int height);
+        /// Blends the `srcRec` area of `bitmap` into the `destRec` area, resizing if the sizes differ.
         void DrawImage(const Picture& bitmap, Rect destRec, Rect srcRec);
         /// See the .cpp definition's own comment:
         /// same cropped-copy shape as the additive-blend DrawImage() above,
@@ -101,6 +126,7 @@ namespace NES_PPU
         /// a blend.
         void DrawNewImage(const Picture& bitmap, Rect destRec, Rect srcRec);
 
+        /// Rotates and/or flips the picture in place according to .
         void RotateFlip(RotateFlipType type);
 
     private:

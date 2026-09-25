@@ -52,7 +52,9 @@ namespace NES
         // comment. Captures the 4 registers a subsequent WriteRegister()
         // would otherwise recompute banks from using stale (power-on
         // default) values.
+        /// Saves the MMC1 shift/control/bank registers.
         void SerializeState(std::vector<uint8_t>& out) const override;
+        /// Restores the MMC1 registers saved by SerializeState().
         void DeserializeState(const uint8_t*& in, const uint8_t* end) override;
 
     protected:

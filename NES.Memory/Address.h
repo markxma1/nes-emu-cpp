@@ -31,10 +31,14 @@ namespace NES
 
         /// Value with additional get/set hook functions.
         virtual uint8_t Value() const = 0;
+        /// Writes the value, running any set hooks.
         virtual void Value(uint8_t v) = 0;
 
+        /// True if the value changed since the last setAsOld() call.
         virtual bool isNew() const = 0;
+        /// Remembers the current value as the baseline for isNew().
         virtual void setAsOld() = 0;
+        /// Human-readable form of the cell (value and address), for debugging.
         virtual std::string ToString() const = 0;
     };
 }

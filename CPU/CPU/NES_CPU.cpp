@@ -392,6 +392,7 @@ namespace NES
         cycles += pendingExtraCycles; // OAM DMA stall (see NES_PPU_OAM::OAMDMA()) or similar
 
         Interrupt::Check(cycles);
+        cycles += Interrupt::TakeDispatchCycles();
         ++instructionCount;
         totalCyclesEver.fetch_add(static_cast<uint64_t>(cycles), std::memory_order_relaxed);
 

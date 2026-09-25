@@ -22,6 +22,7 @@
 
 namespace NES
 {
+    /// A run of PPU/OAM address cells; each entry is one shared byte cell, so mirrored slots can alias the same cell.
     using AddrVec = std::vector<std::shared_ptr<AddressSetup>>;
 
     /// @brief The PPU's 16KB video address space ($0000-$3FFF).
@@ -46,18 +47,28 @@ namespace NES
     class NES_PPU_Memory
     {
     public:
+        /// The whole 16KB PPU address space ($0000-$3FFF), one cell per address.
         static AddrVec Memory;
+        /// Both pattern tables ($0000-$1FFF, the CHR data) as one view of `Memory`.
         static AddrVec PatternTable;
+        /// Pattern table 0 ($0000) and 1 ($1000) as separate 4KB views.
         static std::array<AddrVec, 2> PatternTableN;
+        /// All name-table bytes (the tile-index parts of the four name tables) as one view.
         static AddrVec NameTable;
+        /// The four logical name tables (960 bytes each) as separate views.
         static std::array<AddrVec, 4> NameTableN;
+        /// All attribute-table bytes (the palette-select parts of the four name tables) as one view.
         static AddrVec AttributeTable;
+        /// The four logical attribute tables (64 bytes each) as separate views.
         static std::array<AddrVec, 4> AttributeTableN;
+        /// Background palette RAM ($3F00-$3F0F).
         static AddrVec BGPalette;
+        /// Sprite palette RAM ($3F10-$3F1F); slots 0/4/8/12 alias the matching background entries.
         static AddrVec SpritePalette;
 
         NES_PPU_Memory();
 
+        /// Builds the pattern-table views (`PatternTable`, `PatternTableN`) over `Memory`.
         static void InitPatternTable();
 
         /// Re-applies INES::arrangement to the CPU/PPU-visible nametable and
@@ -77,7 +88,9 @@ namespace NES
         // since a mirroring-mode change between save and load could
         // otherwise leave a physical bank's real content never captured at
         // all - the public logical arrays alone aren't enough for this.
+        /// The four permanent physical name-table banks (see the comment above).
         static std::array<AddrVec, 4>& NameTablePhysicalBanks() { return NameTablePhysical; }
+        /// The four permanent physical attribute-table banks (see the comment above).
         static std::array<AddrVec, 4>& AttributeTablePhysicalBanks() { return AttributeTablePhysical; }
 
     private:

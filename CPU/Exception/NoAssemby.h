@@ -25,6 +25,7 @@ namespace NES
     {
     public:
         NoAssemby() : std::runtime_error("NoAssemby") {}
+        /// Creates the exception with a custom message.
         explicit NoAssemby(const std::string& message) : std::runtime_error(message) {}
     };
 }

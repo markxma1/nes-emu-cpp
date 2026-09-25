@@ -38,7 +38,9 @@ namespace NES
         /// Sets Negative, Overflow, Zero and Carry from an arithmetic result.
         static void NVZC(int number, bool overflow, bool carry);
 
+        /// Returns the Carry flag as 1 or 0.
         static int Carry();
+        /// Returns the inverted Carry flag (1 if clear, 0 if set), as used by SBC.
         static int NotCarry();
     };
 }

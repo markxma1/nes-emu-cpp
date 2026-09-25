@@ -61,6 +61,7 @@ namespace NES
     class NES_APU
     {
     public:
+        /// NTSC CPU clock in Hz, used to convert CPU cycles to audio samples.
         static constexpr double kCpuClockHzNTSC = 1789773.0;
 
         /// Clears all channel/register state - call on power-on and whenever

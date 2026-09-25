@@ -70,6 +70,7 @@ namespace NES
         bool Available() const override { return !deviceFds.empty(); }
         std::string Name() const override { return "Keyboard"; }
 
+        /// The keyboard supports key remapping, so this returns true.
         bool SupportsRemap() const override { return true; }
         std::string PollForCapture() override;
         void Bind(const std::string& button, const std::string& label) override;

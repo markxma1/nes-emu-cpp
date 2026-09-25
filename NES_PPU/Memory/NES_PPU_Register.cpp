@@ -275,7 +275,15 @@ namespace NES
         // just from a fresh $2005 write.
         PPUCTRL.adress->AfterSet([](uint8_t value) {
             NES_PPU::LoopyWriteControl(value);
-            PPUCTRL.V(PPUCTRL.V());
+            // Raising the NMI-enable bit (0 -> 1) while the vblank flag is set
+            // raises an NMI - but only after the *next* instruction: the CPU
+            // polls for interrupts before the last cycle of each instruction,
+            // and this write is that last cycle. http://wiki.nesdev.com/w/index.php/NMI
+            static bool previousNmiEnable = false;
+            bool nmiEnable = (value & 0x80) != 0;
+            if (nmiEnable && !previousNmiEnable && PPUSTATUS.V())
+                Interrupt::RaiseNmiAfterNextInstruction();
+            previousNmiEnable = nmiEnable;
             NES_PPU::RecomputeXScroll();
             NES_PPU::RecomputeYScroll();
         });

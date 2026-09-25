@@ -37,6 +37,7 @@ namespace NES
         /// Instantiates the opcode table (constructs an Assembly_6502).
         NES_CPU();
 
+        /// Measured emulation pacing in nanoseconds spent per CPU cycle.
         static double cpuspeed;
 
         /// PAL/NTSC/no-throttle selector - see SleepTime()/Sleep()'s FIXED
@@ -63,8 +64,11 @@ namespace NES
         // the target delay small enough that Sleep()'s busy-wait exits
         // almost immediately - i.e. effectively uncapped - without needing
         // a separate code path from the normal-speed case.
+        /// User emulation speed factor (1.0 = real time), clamped to the k*SpeedMultiplier range.
         static std::atomic<double> speedMultiplier;
+        /// Lowest allowed speedMultiplier.
         static constexpr double kMinSpeedMultiplier = 0.125; // 1/8x
+        /// Highest allowed speedMultiplier.
         static constexpr double kMaxSpeedMultiplier = 64.0;  // effectively uncapped in practice
 
         // Real, measured frames/second (distinct
@@ -72,6 +76,7 @@ namespace NES
         // not an actual frame rate). Updated a few times a second from a
         // rolling real-time window in Run() - see its own comment. Exposed
         // for the CPU-speed debug window (NES/main.cpp).
+        /// Measured emulated frames per second.
         static std::atomic<double> measuredFPS;
 
         // A real, monotonic count of completed
@@ -102,11 +107,13 @@ namespace NES
         // recording or replay time. Exposing this real per-frame counter
         // lets NES/main.cpp key playback/quit-frame numbering off actual
         // emulated frames instead, immune to UI-thread scheduling jitter.
+        /// Count of emulated frames completed so far.
         static std::atomic<long long> completedFrames;
 
         // Optional callback run on the CPU thread right after each completed
         // frame (argument: the new completedFrames value). Used to apply
         // recorded input at an exact emulated frame.
+        /// Optional callback invoked on the CPU thread after each frame with the new frame count.
         static std::function<void(long long)> frameHook;
 
         // See NES_PPU_OAM::OAMDMA()'s own comment for the full story (the
@@ -130,6 +137,7 @@ namespace NES
         // (4 cycles here, an even count, so the parity this approximation
         // reports matches the real one regardless of exactly which of
         // those 4 cycles the write happens on).
+        /// Total CPU cycles executed since power-on.
         static std::atomic<uint64_t> totalCyclesEver;
 
         // See NES_PPU_OAM::OAMDMA()'s own comment. A generic "this
@@ -141,6 +149,7 @@ namespace NES
         // those two because this one is triggered by a register *write*
         // during dispatch (OAM DMA), not by an addressing-mode/branch
         // decision made *by* the currently-dispatching opcode handler.
+        /// Extra cycles (e.g. OAM DMA stall) to add to the current instruction.
         static int pendingExtraCycles;
 
         /// Runs the fetch-decode-execute loop until Interrupt::POWER goes

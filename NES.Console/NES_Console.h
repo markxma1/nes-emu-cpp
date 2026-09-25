@@ -30,12 +30,18 @@ namespace NES
     class NES_Console
     {
     public:
+        /// True if the PPU should redraw its output (mirrors NES_PPU::DrawRefresh).
         static bool DrawRefresh();
+        /// Enables or disables PPU redrawing.
         static void DrawRefresh(bool v);
 
+        /// Constructs the memory, PPU, controller and APU register objects and registers the PPU's mapper callbacks; call once before Run().
         static void INIT();
+        /// Power-on: loads PC from the reset vector, initialises PPU/APU state and runs the CPU loop until Stop() (blocks).
         static void Run();
+        /// Reset button: like Run() but applies the reset (not power-on) PPU state, then runs the CPU loop (blocks).
         static void Restart();
+        /// Clears Interrupt::POWER so the CPU loop ends.
         static void Stop();
 
         // User-requested save/load-state feature
@@ -50,6 +56,7 @@ namespace NES
         // every register/memory cell exactly where it needs to be, so
         // re-running Run()'s own reset sequence here would just
         // immediately overwrite it.
+        /// Continues the CPU loop without re-running the power-on/reset setup (used after loading a save state).
         static void Resume();
 
         // See RenderFrame()'s own comment for the
@@ -62,13 +69,20 @@ namespace NES
         // from the CPU thread (NES_CPU::Run()) once per completed
         // 262-scanline sweep (NES_PPU::AdvanceDots()) - never from the UI
         // thread.
+        /// Composes one emulated frame and publishes it (and any visible debug overlays) for getDisplay(); called by the CPU loop once per frame.
         static void RenderFrame();
 
+        /// Debug view: the PPU's palette (colour) table as an image.
         static NES_PPU::Picture getPaletteTable();
+        /// Debug view: pattern table number `PN` (0 or 1) as an image.
         static NES_PPU::Picture getPatternTable(int PN);
+        /// Debug view: the current nametables (background tile maps) as an image.
         static NES_PPU::Picture getNameTabele(bool display = true);
+        /// Latest nametable debug image with overlays, as published by RenderFrame() (only refreshed while its window is visible).
         static NES_PPU::Picture getNameTabeleDebugOverlay();
+        /// The most recently completed frame (256x240) published by RenderFrame(); safe to call from the UI thread.
         static NES_PPU::Picture getDisplay(bool display = true);
+        /// The PPU's universal background colour (palette entry at $3F00).
         static NES_PPU::Color getUniversalBackgroundColor();
 
         // Same producer (CPU thread, RenderFrame())/
@@ -78,6 +92,7 @@ namespace NES
         // UI thread would race the CPU thread's concurrent OAM DMA/writes,
         // the exact TSan-confirmed bug class getNameTabeleDebugOverlay()
         // already fixed once for the Name Table window.
+        /// Latest sprite (OAM) debug image, as published by RenderFrame() (only refreshed while its window is visible).
         static NES_PPU::Picture getOAMDebugOverlay();
 
         // See RenderFrame()'s own comment on
@@ -90,19 +105,24 @@ namespace NES
         // `visible` state, so the CPU thread knows whether it's worth
         // paying to rebuild the (fairly expensive - ~2ms) Name Table
         // snapshot this frame.
+        /// Tells the emulator whether the nametable debug window is open, so the overlay is only built when needed.
         static void setNameTableDebugWindowVisible(bool visible);
 
         // Same purpose as
         // setNameTableDebugWindowVisible() above, for the OAM Viewer debug
         // window (see NES_PPU::OAMDebugOverlay()'s own comment).
+        /// Tells the emulator whether the OAM debug window is open, so the overlay is only built when needed.
         static void setOAMDebugWindowVisible(bool visible);
 
+        /// Loads the iNES ROM file at `path` and installs its mapper (see NES_ROM::LoadRom()).
         static void LoadRom(const std::string& path);
 
+        /// The CPU pacing loop's internal speed figure (nanoseconds per cycle, see NES_CPU::cpuspeed).
         static double getCPUSpeed();
 
         // Real, measured frames/second, see
         // NES_CPU::measuredFPS's own comment.
+        /// Frames per second actually being emulated, measured by the CPU loop.
         static double getMeasuredFPS();
 
         // User-requested speed control, see
@@ -112,7 +132,9 @@ namespace NES
         // runaway key-repeat can't drive it to zero/negative (which would
         // make Sleep() divide by zero or run backwards) or to an
         // absurdly large value.
+        /// Current emulation speed multiplier (1.0 = real time).
         static double getSpeedMultiplier();
+        /// Sets the emulation speed multiplier, clamped to the CPU's allowed range.
         static void setSpeedMultiplier(double multiplier);
 
         /// Debug-only: the raw byte currently stored at a CPU address, for

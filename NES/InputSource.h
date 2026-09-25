@@ -57,6 +57,7 @@ namespace NES
         // --- Optional remapping support - default no-op; override only in
         // sources that can actually be rebound. ---
 
+        /// Whether this input source's buttons can be rebound; false by default.
         virtual bool SupportsRemap() const { return false; }
 
         /// Non-blocking: call once per frame while in "waiting for the next

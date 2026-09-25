@@ -31,6 +31,7 @@ namespace NES
     class NES_ROM
     {
     public:
+        /// Reads the iNES file at `filePath`, checks it, and installs the matching mapper. Throws std::runtime_error if the file cannot be opened or is truncated.
         static void LoadRom(const std::string& filePath);
 
         /// The currently-installed mapper, or nullptr before any ROM has
@@ -45,6 +46,7 @@ namespace NES
         // NES_SaveState::Load() can refuse a save file that was made under
         // a *different* ROM - loading Chip and Dale state into Tetris
         // would corrupt both, not just produce a wrong picture.
+        /// 64-bit FNV-1a hash of the loaded ROM file bytes, used to identify the ROM.
         static uint64_t RomHash();
 
     private:

@@ -72,16 +72,24 @@ namespace NES
     class Interrupt
     {
     public:
+        /// True while a non-maskable interrupt request is pending.
         static bool NMI() { return nmi; }
+        /// Sets or clears the NMI request line (the PPU raises it at vblank start).
         static void NMI(bool v) { nmi = v; }
 
+        /// True while a maskable interrupt request is pending.
         static bool IRQ() { return irq; }
+        /// Sets or clears the IRQ request line (e.g. mapper scanline counters).
         static void IRQ(bool v) { irq = v; }
 
+        /// True while a software interrupt (BRK instruction) is pending.
         static bool BRK() { return brk; }
+        /// Sets or clears the BRK request (set by the BRK instruction).
         static void BRK(bool v) { brk = v; }
 
+        /// Console power state: the CPU loop runs while true, setting it false stops emulation.
         static std::atomic<bool> POWER;
+        /// Set to request a reset; the CPU reloads PC from the reset vector at its next Check().
         static std::atomic<bool> RESET;
 
         // NEW, no real-hardware equivalent - a
@@ -113,6 +121,7 @@ namespace NES
         // it, typically only a handful of instructions later - an
         // imperceptible timing nudge, not a correctness gap in the other
         // direction (NMI is never dropped, only briefly deferred).
+        /// While true, a pending NMI is deferred instead of delivered (MMC1 write-burst guard).
         static void SuppressNMI(bool v) { nmiSuppressed = v; }
 
         /// $FFFA-$FFFB  Address of Non-Maskable Interrupt (NMI) handler routine
@@ -132,7 +141,12 @@ namespace NES
         /// dispatch latency can be measured in real cycles instead of whole
         /// instructions.
         static void Check(int cycles);
+        /// Cycles spent on interrupt sequences during the last Check() (7 each), then reset.
+        static int TakeDispatchCycles();
+        /// Requests an NMI that is taken after the instruction following the current one.
+        static void RaiseNmiAfterNextInstruction() { nmiDelay = 2; }
 
+        /// Powers the console off, which ends the CPU loop.
         static void Stop() { POWER = false; }
 
     private:
@@ -152,6 +166,8 @@ namespace NES
         // at once), so fixed properly now: each interrupt type gets its own
         // independent countdown, matching real hardware's three genuinely
         // separate dispatch sequences.
+        static int nmiDelay;       // instructions left before a delayed NMI is raised
+        static int dispatchCycles; // cycles of interrupt sequences taken by the last Check()
         static int irqSevenClock;
         static int brkSevenClock;
         static int nmiSevenClock;

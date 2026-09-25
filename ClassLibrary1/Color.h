@@ -32,25 +32,37 @@ namespace NES_PPU
     /// two.
     struct Color
     {
+        /// Alpha channel (255 = opaque).
         uint8_t A = 0;
+        /// Red channel.
         uint8_t R = 0;
+        /// Green channel.
         uint8_t G = 0;
+        /// Blue channel.
         uint8_t B = 0;
 
         constexpr Color() = default;
+        /// Creates a colour from red, green, blue and alpha (default opaque).
         constexpr Color(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) : A(a), R(r), G(g), B(b) {}
 
+        /// Colours are equal when all four channels match.
         friend constexpr bool operator==(const Color& l, const Color& r)
         {
             return l.A == r.A && l.R == r.R && l.G == r.G && l.B == r.B;
         }
+        /// Inverse of operator==.
         friend constexpr bool operator!=(const Color& l, const Color& r) { return !(l == r); }
 
         // .NET named-color values used by the ported source.
+        /// Fully transparent white (A=0).
         static constexpr Color Transparent() { return Color(255, 255, 255, 0); }
+        /// Opaque black.
         static constexpr Color Black() { return Color(0, 0, 0, 255); }
+        /// Opaque red.
         static constexpr Color Red() { return Color(255, 0, 0, 255); }
+        /// Opaque green (0,128,0).
         static constexpr Color Green() { return Color(0, 128, 0, 255); } // .NET Color.Green is (0,128,0), not (0,255,0)
+        /// Opaque blue.
         static constexpr Color Blue() { return Color(0, 0, 255, 255); }
     };
 }

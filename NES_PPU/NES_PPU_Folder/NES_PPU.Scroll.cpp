@@ -35,8 +35,8 @@ namespace NES
     bool NES_PPU::splitPrevRendered = false;
     int NES_PPU::splitStartLine = 0;
 
-    // One vertical step of v, as the PPU does at dot 256 of every scanline
-    // (fine Y, then coarse Y with the 29 -> 0 nametable flip).
+    /// One vertical step of v, as the PPU does at dot 256 of every scanline
+    /// (fine Y, then coarse Y with the 29 -> 0 nametable flip).
     static uint16_t IncrementVerticalAddress(uint16_t v)
     {
         int fy = (v >> 12) & 7;

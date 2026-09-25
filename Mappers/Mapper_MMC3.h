@@ -84,7 +84,9 @@ namespace NES
 
         // New: see Mapper::SerializeState()'s own
         // comment.
+        /// Saves the MMC3 bank-select, bank and IRQ counter state.
         void SerializeState(std::vector<uint8_t>& out) const override;
+        /// Restores the MMC3 state saved by SerializeState().
         void DeserializeState(const uint8_t*& in, const uint8_t* end) override;
 
     protected:

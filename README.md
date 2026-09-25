@@ -1,21 +1,72 @@
 # nes-emu-cpp
 
-A C++ NES (Nintendo Entertainment System) emulator written as a learning
-project. The goal is **understanding real NES hardware**, not just playing
-games - so the code is written and commented to be read, not just run.
-Priorities, in order: understandability, clarity of structure, and working
-code (examples and tests must actually run).
+A NES (Nintendo Entertainment System) emulator written in C++ as a **learning
+project**: the point is to *understand* how an emulator works, not to be the
+fastest or most complete one. Every part of the hardware (CPU, PPU, memory map,
+mappers, controller) lives in its own folder, is written to be read, and is
+commented with the hardware behaviour it models and a link to the documentation
+it was checked against ([nesdev.org](https://www.nesdev.org/)).
 
-If you're new to emulator development, this file is meant to be your entry
-point: where to start reading, how the pieces fit together, and - probably the
-most useful part - a list of the specific ways real hardware behaves
-differently from what you'd naively guess, collected from real bugs found and
-fixed in this exact codebase.
+If you want to write your own emulator, this repository is meant to help: read
+the code in the order suggested below, use the test ROMs to see what each piece
+has to get right, and compare against the "hardware gotchas" list, which
+collects real mistakes found in this code base and how they were fixed.
+
+Priorities, in order: **understandability**, clear structure, working code
+(examples and tests actually run).
+
+## Status
+
+- CPU: all official opcodes plus the unofficial ones commonly used, passes the
+  `nestest` conformance log (`tests/nestest`), cycle counts include branch and
+  page-crossing penalties and the OAM DMA stall.
+- PPU: scanline-accurate background and sprite rendering, scroll registers
+  (`t`/`v`/`x` model for mid-frame splits), sprite 0 hit, left-column masking.
+- Mappers: NROM, MMC1, MMC3, UxROM, CNROM, AxROM.
+- APU: basic channels.
+- Verified against [FCEUX](https://fceux.com/) frame by frame (CPU RAM and
+  picture) with the same recorded input on several commercial games and with
+  the self-written test ROMs in `tests/roms` (see its README).
+- Not (yet) cycle-accurate inside an instruction; see "Known structural
+  simplifications" below.
+
+More extensions and experiments will come depending on the version (debug
+viewers for name tables, pattern tables and OAM are already included).
+
+## Build
+
+Requirements: a C++17 compiler, CMake >= 3.16, OpenCV (window and image
+output) and SDL2 (audio). On Arch: `sudo pacman -S cmake ninja opencv sdl2`;
+on Debian/Ubuntu: `sudo apt install cmake ninja-build libopencv-dev libsdl2-dev`.
+
+```sh
+cmake -S . -B build -G Ninja      # or omit -G Ninja for Makefiles
+cmake --build build -j
+ctest --test-dir build --output-on-failure   # unit tests + nestest
+./build/nes-emu path/to/your.nes
+```
+
+**ROMs are not included.** Commercial game ROMs are copyrighted; supply your
+own legally obtained file. The repository ships only `tests/nestest` (a freely
+distributed CPU test) and small ROMs written for this project in `tests/roms`.
+
+Optional: `cmake -DNES_SANITIZER=address` (or `thread`, `undefined`) for sanitizer builds (see
+`CMakeLists.txt`), and API documentation with Doxygen:
+
+```sh
+doxygen Doxyfile        # writes docs/html/index.html
+```
+
+## Controls and debug windows
+
+Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:
+`M`). Debug windows: `N` name table, `P` pattern table, `U` OAM viewer,
+`V` memory viewer, `C` CPU speed; `K` cycles which CHR bank state (as drawn,
+#0, #1, ...) the name table, pattern table and OAM viewers show.
 
 ## What this is (and isn't)
 
-- A **scanline-accurate**, not fully cycle-accurate, NES emulator (see "Known
-  structural simplifications" below).
+- A **scanline-accurate**, not fully cycle-accurate, NES emulator.
 - Structured so each hardware part (CPU, PPU, Memory, Mapper, addressing,
   controller) lives in its own folder, separate from the UI shell
   (`NES/main.cpp`) and the software-framebuffer class (`ClassLibrary1/Picture`),
@@ -194,8 +245,10 @@ this stops passing, that's your bug, found before it ever reaches a game ROM.
   unimplemented** (`LAX #imm`/`$AB`, `XAA`/`$8B`, the `SHA`/`SHX`/`SHY`/`TAS`/
   `AHX` family) - their real behavior varies by console/temperature, and no
   real software deliberately relies on them.
-- **CPU timing is instruction-count-based, not cycle-count-based** - see
-  `NES_CPU::SleepTime`'s own `// NOTE:` for the specific consequence.
+- **CPU timing is instruction-atomic**: each instruction runs as one step and
+  its total cycle count (including branch / page-crossing penalties and the OAM
+  DMA stall) is charged afterwards, so the PPU is advanced per instruction, not
+  per cycle. Interrupts are recognised at instruction boundaries and cost 7 cycles.
 
 ## Reading the comments
 
@@ -212,17 +265,32 @@ framebuffer - see its own class-level comment.
 
 ## Reference documentation
 
-- [nesdev.org wiki](https://www.nesdev.org/wiki/) - the primary source used
-  throughout this codebase's comments. Look up register names ($2000-$2007,
-  $4016/$4017), "Addressing modes", "CPU interrupts", "Errata" (hardware
-  bugs like the JMP indirect one above), and "Instruction reference".
-- [wikibooks.org NES Programming](https://en.wikibooks.org/wiki/NES_Programming) -
-  a gentler, tutorial-style introduction; several files in `NES.Memory`
-  reference this directly.
-- [nesdev.org/wiki/Emulator_tests](https://www.nesdev.org/wiki/Emulator_tests) -
-  where `tests/nestest/nestest.nes` and `.log` came from, and a good list of
-  further conformance ROMs if you want to extend the test suite (PPU timing
-  tests, APU tests, mapper tests - none of which this project has yet).
+Everything in this project was learned from and checked against the community
+documentation - thank you to everyone who maintains it:
+
+- [nesdev.org](https://www.nesdev.org/) - the main source (wiki + forums). Pages
+  used most: [CPU](https://www.nesdev.org/wiki/CPU),
+  [CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts),
+  [Instruction reference](https://www.nesdev.org/wiki/Instruction_reference),
+  [CPU addressing modes](https://www.nesdev.org/wiki/CPU_addressing_modes),
+  [PPU registers](https://www.nesdev.org/wiki/PPU_registers),
+  [PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling),
+  [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes),
+  [PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state),
+  [PPU OAM](https://www.nesdev.org/wiki/PPU_OAM),
+  [Mirroring](https://www.nesdev.org/wiki/Mirroring),
+  [MMC3](https://www.nesdev.org/wiki/MMC3), [MMC1](https://www.nesdev.org/wiki/MMC1),
+  [Controller reading](https://www.nesdev.org/wiki/Controller_reading),
+  [Open bus behavior](https://www.nesdev.org/wiki/Open_bus_behavior),
+  [Errata](https://www.nesdev.org/wiki/Errata).
+- [nestest](https://www.nesdev.org/wiki/Emulator_tests) - the CPU conformance ROM
+  and log used in `tests/nestest`; the same page lists further test ROMs.
+- [6502 instruction set](https://www.masswerk.at/6502/6502_instruction_set.html) -
+  base cycle counts.
+- [Wikibooks: NES Programming](https://en.wikibooks.org/wiki/NES_Programming) - a
+  gentler introduction.
+- [FCEUX](https://fceux.com/) - used as the reference emulator for the
+  frame-by-frame comparisons in `tests/roms`.
 
 ## License
 

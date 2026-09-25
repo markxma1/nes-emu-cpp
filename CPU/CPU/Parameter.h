@@ -80,7 +80,9 @@ namespace NES
         // this flag matters for the instruction that just ran, via its own
         // small "is this opcode read-only indexed" table. Reset once per
         // Step() call, before dispatch.
+        /// Set when an indexed addressing mode crossed a page boundary (may cost an extra cycle).
         static bool pageCrossed;
+        /// Clears pageCrossed; called once per CPU step.
         static void ResetPageCrossed() { pageCrossed = false; }
     };
 }

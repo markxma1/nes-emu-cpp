@@ -39,12 +39,14 @@ namespace NES
     /// cell it lives on. http://wiki.nesdev.com/w/index.php/Standard_controller
     struct InputFlags
     {
+        /// The $4016 address cell whose bit 0 is the strobe line.
         std::shared_ptr<AddressSetup> address;
 
         /// While strobe is high, the shift register keeps reloading from the
         /// button states and $4016/$4017 reads keep returning button A;
         /// once it goes low, buttons can be read back one at a time.
         bool strobe() const { return (address->value() & 0x01) > 0; }
+        /// Sets or clears the strobe bit (bit 0) in the cell.
         void strobe(bool v) { address->value(static_cast<uint8_t>(address->value() & ~0x01)); if (v) address->value(static_cast<uint8_t>(address->value() | 0x01)); }
     };
 
@@ -62,16 +64,21 @@ namespace NES
     class OutputFlags
     {
     public:
+        /// The $4016/$4017 address cell the CPU reads (bit 0 serial data, bits 5-7 open bus).
         std::shared_ptr<AddressSetup> address;
 
+        /// The serial output bit (bit 0): the button currently shifted out.
         bool SerialControllerData() const { return (address->value() & 0x01) > 0; }
+        /// Sets the serial output bit (bit 0).
         void SerialControllerData(bool v)
         {
             address->value(static_cast<uint8_t>(address->value() & ~0x01));
             if (v) address->value(static_cast<uint8_t>(address->value() | (0x01 & 0x01)));
         }
 
+        /// The open-bus bits (mask 0xE0) of the read byte.
         uint8_t OpenBus() const { return static_cast<uint8_t>(address->value() & 0xE0); }
+        /// Sets the open-bus bits (mask 0xE0) of the read byte.
         void OpenBus(uint8_t v) { address->value(static_cast<uint8_t>(address->value() & ~0xE0)); address->value(static_cast<uint8_t>(address->value() | (v & 0xE0))); }
     };
 
@@ -108,6 +115,7 @@ namespace NES
         /// made games see Select held until the first key event arrived).
         struct Controller
         {
+            /// One (name, pressed) entry per button, in the order they are read from $4016: A, B, SELECT, START, U, D, L, R.
             std::vector<std::pair<std::string, bool>> Button;
             Controller()
                 : Button{ {"A", false}, {"B", false}, {"SELECT", false}, {"START", false},
@@ -116,13 +124,18 @@ namespace NES
             }
         };
 
+        /// State of controller 1 (the only one wired to $4016).
         static Controller Player1;
+        /// State of controller 2 (not wired to any address yet).
         static Controller Player2;
+        /// State of controller 3 (not wired to any address yet).
         static Controller Player3;
+        /// State of controller 4 (not wired to any address yet).
         static Controller Player4;
 
         /// Set-only (no getter).
         static void Input4016(InputFlags v) { input4016 = v; }
+        /// The read side of $4016 (what the CPU sees when it reads the port).
         static OutputFlags Output4016() { return output4016; }
 
         NES_GamePad();

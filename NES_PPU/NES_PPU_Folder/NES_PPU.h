@@ -49,14 +49,19 @@ namespace NES
     class NES_PPU
     {
     public:
+        /// Alias for the graphics-namespace `Picture` type.
         using Picture = ::NES_PPU::Picture;
+        /// Alias for the graphics-namespace `Color` type.
         using Color = ::NES_PPU::Color;
+        /// Alias for the graphics-namespace `Rect` type.
         using Rect = ::NES_PPU::Rect;
+        /// Alias for the graphics-namespace `RotateFlipType` type.
         using RotateFlipType = ::NES_PPU::RotateFlipType;
 
         // --- NES_PPU.cpp ---
         NES_PPU();
 
+        /// Renders the current background and sprite palettes as a debug picture (colour swatches); only re-rendered while NMI is enabled (PPUCTRL bit 7), otherwise the last picture is returned.
         static Picture PaletteTable();
 
         // --- NES_PPU.Tile.cpp ---
@@ -103,13 +108,16 @@ namespace NES
         static void NoteChrChanged() { chrChangedSinceSnapshot = true; }
         /// Forget which CHR state each nametable row was drawn with.
         static void ClearChrRowSnapshots() { for (auto& nt : rowChrSnapshot) for (auto& r : nt) r.reset(); }
+        /// Registers a callback that describes the current CHR bank layout; its text is stored with each CHR snapshot for the debug viewers.
         static void SetChrDescriptionCallback(std::function<std::string()> cb) { chrDescriber = std::move(cb); }
         /// One key for all debug viewers (name table, pattern table, OAM):
         /// -1 = as drawn (name table / OAM decode each row/sprite with the CHR
         /// state of its scanline; pattern table shows the live banks), then
         /// 0, 1, 2 ... = force that CHR state of the frame everywhere.
         static void CycleChrView();
+        /// Selects the CHR state the debug viewers show (-1 = as drawn, see `CycleChrView()`).
         static void SetChrView(int v) { chrView = v; }
+        /// Returns the CHR view selected for the debug viewers.
         static int ChrView() { return chrView; }
         /// Sprite tile decoded for the debug viewers (see .cpp).
         static Picture DecodeSpriteForViewer(uint16_t id, int palette, int bank, int y);
@@ -186,6 +194,7 @@ namespace NES
 
         /// Debug/test introspection only - see tests/cpu/cpu_check.cpp.
         static int CurrentScanline() { return currentScanline; }
+        /// Current dot (PPU clock cycle) within the current scanline.
         static int CurrentDot() { return currentDot; }
 
         /// New: registers the callback OnScanlineStart()
@@ -220,9 +229,12 @@ namespace NES
         /// write-only on real hardware, so a CPU read of $2005 isn't
         /// meaningful here either).
         static uint8_t Scroll();
+        /// Handles a CPU write to PPUSCROLL ($2005): first write is X, second is Y.
         static void Scroll(uint8_t v);
 
+        /// Logical horizontal scroll position in the doubled nametable space (0..511).
         static int xScroll;
+        /// Logical vertical scroll position in the doubled nametable space (0..479).
         static int yScroll;
 
         /// Raw, pre-AddxScroll()/AddyScroll() scroll value last written via
@@ -233,6 +245,7 @@ namespace NES
         /// a fresh $2005 write to pick it up. See their own .cpp comment for
         /// why this exists.
         static int rawXScroll;
+        /// Raw Y value last written via $2005 (see `rawXScroll` above).
         static int rawYScroll;
         /// Re-derives xScroll/yScroll from rawXScroll/rawYScroll and
         /// PPUCTRL's *current* nametable-select bits - called from
@@ -241,6 +254,7 @@ namespace NES
         /// logically belongs with (see this port's own real-game trace,
         /// documented in NES_PPU.Scroll.cpp) still takes effect.
         static void RecomputeXScroll();
+        /// Y-axis counterpart of `RecomputeXScroll()`.
         static void RecomputeYScroll();
 
         /// PPUSCROLL/PPUADDR's shared internal write-toggle `w`: true = next
@@ -265,9 +279,13 @@ namespace NES
         // nametable/row. The ordinary xScroll/yScroll pair models a whole-frame
         // scroll; once such a $2006 load happens on a visible scanline, the
         // remaining scanlines of that frame are drawn from `v` instead.
+        /// Applies a $2000 write to the temporary address `t` (nametable-select bits).
         static void LoopyWriteControl(uint8_t value);
+        /// Applies a $2005 write to `t` and fine X; `firstWrite` selects the X or Y half.
         static void LoopyWriteScroll(uint8_t value, bool firstWrite);
+        /// Applies a $2006 write to `t`; the second write copies `t` into `v` and may start a mid-frame scroll split.
         static void LoopyWriteAddress(uint8_t value, bool firstWrite);
+        /// True while the rest of the frame is drawn from `v` after a mid-frame $2006 load.
         static bool ScrollSplitActive() { return splitActive; }
 
     private:

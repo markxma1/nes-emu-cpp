@@ -107,13 +107,18 @@ namespace NES
         // bank switch after a load would silently revert to whatever
         // power-on-default state OnInstall() left behind. Default no-op
         // covers every mapper that doesn't need this.
+        /// Appends this mapper's internal register state to `out` for save states (default: nothing).
         virtual void SerializeState(std::vector<uint8_t>& out) const { (void)out; }
+        /// Restores state written by SerializeState(), advancing `in` (never reading past `end`).
         virtual void DeserializeState(const uint8_t*& in, const uint8_t* end) { (void)in; (void)end; }
 
     protected:
+        /// PRG ROM contents of the cartridge.
         std::vector<uint8_t> prg;
+        /// CHR data of the cartridge (empty when the board uses CHR RAM).
         std::vector<uint8_t> chr;
 
+        /// True if the cartridge has no CHR ROM and therefore uses CHR RAM.
         bool HasChrRam() const { return chr.empty(); }
 
         /// Applies this mapper's power-on-default bank configuration (e.g.

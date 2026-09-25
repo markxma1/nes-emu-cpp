@@ -24,15 +24,20 @@ namespace NES
     class Stack
     {
     public:
+        /// Pushes the P register with the B and U bits forced to `b` and `u` (PHP/BRK push B=1, IRQ/NMI push B=0).
         static void ProcessorstatusToStack(bool b, bool u);
+        /// Pops P from the stack (PLP/RTI); bits 4 and 5 are ignored, as on real hardware.
         static void StackToProcessorstatus();
+        /// Pushes PC minus one, high byte first (as JSR does).
         static void PcToStack();
         /// Pops PC from the stack. `incrementAfter` matches RTS's `+1` (it
         /// compensates JSR's `return_address - 1` push, see PcToStack()) -
         /// RTI must pass false, since an interrupt push has no such offset.
         /// See Stack.cpp for the bug this parameter fixes.
         static void StackToPc(bool incrementAfter = true);
+        /// Writes `value` at the current stack pointer, then decrements S.
         static void PushToStack(uint8_t value);
+        /// Increments S, then returns the byte stored there.
         static uint8_t PopFromStack();
     };
 }

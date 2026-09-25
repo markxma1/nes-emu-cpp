@@ -42,7 +42,7 @@ namespace NES
         /// Example: ADC $C001,Y - $02 in Y + $C001 = $C003, whose value is used.
         static void LDA_B9(uint16_t ay);
         /// LDA, Immediate: #(v) - the operand is used directly.
-        /// Example: LDA #$22 loads $22 into A.
+        /// Example: `LDA #$22` loads the value 0x22 into A.
         static void LDA_A9(uint8_t v);
         /// LDA, Zero Page: a single byte addresses $00xx; the byte there is used.
         /// Example: LDY $02 loads the value at $0002 into Y.

@@ -179,6 +179,7 @@ namespace NES
     // is "register is bigger" but the subtraction result (0x80) still has
     // bit 7 set, so Negative should be true, not false. Fixed by computing
     // the real result and reusing Status::NZ (Negative/Zero) directly.
+    /// Shared CMP/CPX/CPY helper: sets Carry if `reg >= value` and N/Z from `reg - value`.
     static void Compare(uint8_t reg, uint8_t value)
     {
         NES_Register::P.Carry(reg >= value);

@@ -135,13 +135,17 @@ namespace NES
         if (strobeHigh)
             P1BID = 0;
         if (std::getenv("NES_TRACE_PAD"))
-            std::cerr << "[pad] idx=" << P1BID << " " << Player1.Button[static_cast<size_t>(P1BID)].first << "=" << Player1.Button[static_cast<size_t>(P1BID)].second << " strobe=" << strobeHigh << std::endl;
-        output4016.SerialControllerData(Player1.Button[static_cast<size_t>(P1BID)].second);
+            std::cerr << "[pad] idx=" << P1BID << " strobe=" << strobeHigh << std::endl;
+        // After all 8 buttons have been shifted out a standard controller
+        // returns 1 on every further read.
+        // http://wiki.nesdev.com/w/index.php/Controller_reading
+        bool bit = (P1BID > 7) ? true : Player1.Button[static_cast<size_t>(P1BID)].second;
+        output4016.SerialControllerData(bit);
         // Bits 7-5 of a $4016/$4017 read are open bus: the CPU data bus still
         // holds the high byte of the address just read ($40), so bit 6 reads
         // back as 1 - http://wiki.nesdev.com/w/index.php/Open_bus_behavior
         output4016.OpenBus(0x40);
-        if (!strobeHigh && ++P1BID > 7)
-            P1BID = 0;
+        if (!strobeHigh && P1BID <= 7)
+            ++P1BID;
     }
 }

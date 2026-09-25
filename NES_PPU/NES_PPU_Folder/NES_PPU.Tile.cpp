@@ -311,8 +311,10 @@ namespace NES
             patternArray.emplace(ID, bitmap);
     }
 
-    /// Creates a Bitmap with the patterns used for the running game.
-    /// @param PN palette number
+    /// Decodes one 8x8 tile from a CHR snapshot into a picture.
+    /// @param chr snapshot of the 8 KB pattern data
+    /// @param startAddress offset of the tile's first byte in the snapshot
+    /// @param color the four palette colours to paint with
     NES_PPU::Picture NES_PPU::DecodeTileFromChr(const ChrSnapshot& chr, int startAddress, const NES_PPU_Color& color)
     {
         Picture bitmap(8, 8);
@@ -326,6 +328,8 @@ namespace NES
         return bitmap;
     }
 
+    /// Creates a Bitmap with the patterns used for the running game.
+    /// @param PN palette number
     NES_PPU::Picture NES_PPU::PatternTable(int PN)
     {
         std::shared_ptr<const ChrSnapshot> shown;
