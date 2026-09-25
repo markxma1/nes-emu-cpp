@@ -40,11 +40,31 @@ output) and SDL2 (audio). On Arch: `sudo pacman -S cmake ninja opencv sdl2`;
 on Debian/Ubuntu: `sudo apt install cmake ninja-build libopencv-dev libsdl2-dev`.
 
 ```sh
+# run these in the project folder (the one with CMakeLists.txt)
 cmake -S . -B build -G Ninja      # or omit -G Ninja for Makefiles
 cmake --build build -j
 ctest --test-dir build --output-on-failure   # unit tests + nestest
 ./build/nes-emu path/to/your.nes
 ```
+
+### Where do I run what?
+
+Every command in this README is meant to be run from the **project folder** (the one that contains
+`CMakeLists.txt`), not from inside `build/`. `build/` is only where CMake puts its results:
+
+| I want to ... | command (run in the project folder) |
+|---|---|
+| set up once | `cmake -S . -B build -G Ninja` (`-S .` = sources are here, `-B build` = results go to `build/`) |
+| compile (again) | `cmake --build build -j` |
+| run the tests | `ctest --test-dir build --output-on-failure` |
+| play a game | `./build/nes-emu path/to/game.nes` |
+| measure speed | `./build/nes-bench path/to/game.nes 1500` |
+| build the documentation | `doxygen Doxyfile`, then open `docs/html/index.html` |
+| read a profile | `python3 tools/profile_report.py trace.json` |
+
+Programs you start with `./build/...` may change into their own folder while running (they look
+for `Palletes/2C03and2C05.bmp` next to themselves), so give ROM and input files as paths that work from
+the project folder; they are resolved before the program changes folder.
 
 **ROMs are not included.** Commercial game ROMs are copyrighted; supply your
 own legally obtained file. The repository ships only `tests/nestest` (a freely
@@ -72,10 +92,40 @@ prints how many times faster than a real NES it ran; `NES_BENCH_RENDER_EVERY=N` 
 scoped timers (`Profiler/Profiler.h`); `python3 tools/profile_report.py trace.json` prints a table and writes
 timeline pictures.
 
-For a sampling profile with `gprof`: configure a separate build directory with
-`-DCMAKE_CXX_FLAGS="-pg" -DCMAKE_EXE_LINKER_FLAGS="-pg"`, build `nes-bench`, run it, then call
-`gprof ./nes-bench gmon.out | head -30` **in the folder of the binary**: `nes-bench` changes into its own
-directory (to find the palette file), so `gmon.out` is written there.
+### Finding the slow parts with `gprof` (step by step)
+
+`gprof` is a separate command line tool from GNU binutils (usually already installed; check with
+`gprof --version`). It samples where a program spends its time. It needs a build with the extra flag `-pg`,
+so use a **second build folder** and keep the normal `build/` untouched. All commands run in the project folder:
+
+```sh
+# 1. a separate profiling build (keeps optimisation on, adds profiling code)
+cmake -S . -B build-prof -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_CXX_FLAGS="-pg" -DCMAKE_EXE_LINKER_FLAGS="-pg"
+cmake --build build-prof -j --target nes-bench
+
+# 2. run the benchmark; when it ends normally it writes gmon.out
+ROM=$PWD/path/to/game.nes
+./build-prof/nes-bench "$ROM" 1500
+
+# 3. read the result - gmon.out is in build-prof/ (nes-bench changes into its own folder)
+gprof ./build-prof/nes-bench build-prof/gmon.out | head -30
+```
+
+How to read the "Flat profile":
+
+- `% time` / `self seconds`: the share of time spent *inside* that function itself. The top lines are the
+  hot spots - look at these first.
+- `calls`: how often it ran. A tiny function with hundreds of millions of calls is not slow by itself,
+  but it is called too often.
+- The percentages compare functions with each other reliably; the absolute seconds are only rough (the
+  profiling code itself slows the program down).
+
+Limits: only code built with `-pg` is measured (not OpenCV/libc), waiting is not counted, and threads are
+covered badly - which is why `nes-bench` runs without a window. For an exact picture of *when* something
+happens (single frames, spikes) use the built-in timers above instead. If `perf` is installed
+(`sudo pacman -S perf`), `perf record ./build/nes-bench game.nes 1500` and `perf report` need no special
+build at all.
 
 ## Controls and debug windows
 
