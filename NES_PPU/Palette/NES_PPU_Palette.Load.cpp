@@ -17,12 +17,30 @@
 #include "NES_PPU_Palette.h"
 #include <opencv2/imgcodecs.hpp>
 #include <stdexcept>
+#include <string>
+#include <unistd.h>
 
 namespace NES
 {
     void NES_PPU_Palette::InitPalletesFromBMP(const std::string& path)
     {
-        cv::Mat pallete = cv::imread(path, cv::IMREAD_COLOR);
+        cv::Mat pallete;
+        if (access(path.c_str(), R_OK) == 0)
+            pallete = cv::imread(path, cv::IMREAD_COLOR);
+        if (pallete.empty() && !path.empty() && path[0] != '/')
+        {
+            // A relative path is looked up in the working directory first, then next to the program
+            // (test programs are often started from the repository root).
+            char exe[4096];
+            ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+            if (n > 0)
+            {
+                std::string dir(exe, static_cast<size_t>(n));
+                dir = dir.substr(0, dir.rfind('/'));
+                std::string relative = path.rfind("./", 0) == 0 ? path.substr(2) : path;
+                pallete = cv::imread(dir + "/" + relative, cv::IMREAD_COLOR);
+            }
+        }
         if (pallete.empty())
             throw std::runtime_error("NES_PPU_Palette: could not load palette bitmap: " + path);
         LoadPallete(pallete);

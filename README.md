@@ -72,6 +72,11 @@ prints how many times faster than a real NES it ran; `NES_BENCH_RENDER_EVERY=N` 
 scoped timers (`Profiler/Profiler.h`); `python3 tools/profile_report.py trace.json` prints a table and writes
 timeline pictures.
 
+For a sampling profile with `gprof`: configure a separate build directory with
+`-DCMAKE_CXX_FLAGS="-pg" -DCMAKE_EXE_LINKER_FLAGS="-pg"`, build `nes-bench`, run it, then call
+`gprof ./nes-bench gmon.out | head -30` **in the folder of the binary**: `nes-bench` changes into its own
+directory (to find the palette file), so `gmon.out` is written there.
+
 ## Controls and debug windows
 
 Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:
