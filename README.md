@@ -44,7 +44,7 @@ on Debian/Ubuntu: `sudo apt install cmake ninja-build libopencv-dev libsdl2-dev`
 cmake -S . -B build -G Ninja      # or omit -G Ninja for Makefiles
 cmake --build build -j
 ctest --test-dir build --output-on-failure   # unit tests + nestest
-./build/nes-emu path/to/your.nes
+./build/nes-emu path/to/your.nes  # replace with the real path of a .nes file you own
 ```
 
 ### Where do I run what?
@@ -57,8 +57,8 @@ Every command in this README is meant to be run from the **project folder** (the
 | set up once | `cmake -S . -B build -G Ninja` (`-S .` = sources are here, `-B build` = results go to `build/`) |
 | compile (again) | `cmake --build build -j` |
 | run the tests | `ctest --test-dir build --output-on-failure` |
-| play a game | `./build/nes-emu path/to/game.nes` |
-| measure speed | `./build/nes-bench path/to/game.nes 1500` |
+| play a game | `./build/nes-emu path/to/game.nes` (replace with the real path of your ROM; `tests/roms/ppu_palette.nes` is a small ROM to try) |
+| measure speed | `./build/nes-bench tests/roms/timing.nes 1500` (any `.nes` file works) |
 | build the documentation | `doxygen Doxyfile`, then open `docs/html/index.html` |
 | read a profile | `python3 tools/profile_report.py trace.json` |
 
@@ -99,11 +99,13 @@ scanline). They record **nothing** unless you switch them on, so normal runs are
 ```sh
 # 1. record: set NES_PROFILE to a file name and run the emulator. Two ways:
 
+# (tests/roms/timing.nes is a test ROM that ships with the project; use your own .nes file the same way)
+
 # a) without a window and without the speed limit (best for finding slow code):
-NES_PROFILE=trace.json ./build/nes-bench path/to/game.nes 1500
+NES_PROFILE=trace.json ./build/nes-bench tests/roms/timing.nes 1500
 
 # b) the normal emulator with window (the trace is written when you quit with Esc):
-NES_PROFILE=trace.json ./build/nes-emu path/to/game.nes
+NES_PROFILE=trace.json ./build/nes-emu tests/roms/timing.nes
 
 # 2. evaluate it (needs Pillow: `sudo pacman -S python-pillow` or `pip install pillow`):
 python3 tools/profile_report.py trace.json
@@ -149,7 +151,7 @@ cmake -S . -B build-prof -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 cmake --build build-prof -j --target nes-bench
 
 # 2. run the benchmark; when it ends normally it writes gmon.out
-ROM=$PWD/path/to/game.nes
+ROM=$PWD/tests/roms/timing.nes     # or your own .nes file
 ./build-prof/nes-bench "$ROM" 1500
 
 # 3. read the result - gmon.out is in build-prof/ (nes-bench changes into its own folder)

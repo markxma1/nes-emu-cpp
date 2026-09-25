@@ -167,7 +167,7 @@ if __name__ == '__main__':
         found = [os.path.join(d, name) for d in {here, root, os.path.join(root, 'build')} if os.path.exists(os.path.join(d, name))]
         print(f'File not found: {os.path.abspath(a.trace)}\n'
               f'The trace is written where you STARTED the emulator (not into build/). Record it first:\n'
-              f'    NES_PROFILE={name} ./build/nes-bench path/to/game.nes 1500     # run in the project folder')
+              f'    NES_PROFILE={name} ./build/nes-bench tests/roms/timing.nes 1500     # run in the project folder')
         if found:
             print('A file with that name exists here - use its full path:\n    ' + '\n    '.join(found))
         sys.exit(1)

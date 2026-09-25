@@ -36,6 +36,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -70,7 +71,8 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::cerr << "usage: nes-bench ROM.nes [frames=1000] [input.txt]" << std::endl;
+        std::cerr << "usage: nes-bench ROM.nes [frames=1000] [input.txt]\n"
+                  << "example: ./build/nes-bench tests/roms/timing.nes 600" << std::endl;
         return 2;
     }
     const std::string rom = argv[1];
@@ -99,8 +101,18 @@ int main(int argc, char** argv)
     NES::Profiler::InitFromEnvironment(); // before changing folder: a relative NES_PROFILE path stays where you started
     ChdirToExecutableDir();
 
-    NES::NES_Console::INIT();
-    NES::NES_Console::LoadRom(romPath);
+    try
+    {
+        NES::NES_Console::INIT();
+        NES::NES_Console::LoadRom(romPath);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Could not load \"" << rom << "\": " << e.what() << "\n"
+                  << "Give the path of a real .nes file, for example the test ROM shipped with this project:\n"
+                  << "    ./build/nes-bench tests/roms/timing.nes 600" << std::endl;
+        return 1;
+    }
     NES::NES_CPU::mod = NES::Mod::none; // no real-time throttle
 
     NES::NES_CPU::frameHook = [&](long long frame)
