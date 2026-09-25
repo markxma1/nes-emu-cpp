@@ -96,9 +96,20 @@ namespace NES
         }
     }
 
+    // Memory cells keep pointers into this mapper's ROM bytes and slot table. At program exit the mapper
+    // can be destroyed after the memory cells (static destruction order), so the destructor must not touch
+    // them - and a mapper replaced or destroyed mid-run must not leave dangling pointers behind. So the
+    // ROM bytes and the slot table are handed to a store that is never freed (ROM images are small and
+    // replaced rarely); Install() of the next mapper unmaps the cells again.
     Mapper::~Mapper()
     {
-        UnmapAllRom();
+        struct Retired
+        {
+            std::vector<uint8_t> prg, chr;
+            std::shared_ptr<void> slots;
+        };
+        static auto* retired = new std::vector<Retired>();
+        retired->push_back(Retired{std::move(prg), std::move(chr), slotTable});
     }
 
     // Cells that read through this mapper's slot arrays must not outlive it.
@@ -132,12 +143,12 @@ namespace NES
             for (int piece = 0; piece < length / 1024; ++piece)
             {
                 int k = cpuStart / 1024 + piece;
-                prgSlots[k] = prg.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % prg.size();
+                slotTable->prg[k] = prg.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % prg.size();
                 if (!prgMapped[k])
                 {
                     prgMapped[k] = true;
                     for (int i = 0; i < 1024; ++i)
-                        NES_Memory::Memory[static_cast<size_t>(k * 1024 + i)]->MapRom(&prgSlots[k], static_cast<uint16_t>(i));
+                        NES_Memory::Memory[static_cast<size_t>(k * 1024 + i)]->MapRom(&slotTable->prg[k], static_cast<uint16_t>(i));
                 }
             }
             return;
@@ -199,12 +210,12 @@ namespace NES
             for (int piece = 0; piece < length / 1024; ++piece)
             {
                 int k = ppuStart / 1024 + piece;
-                chrSlots[k] = chr.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % chr.size();
+                slotTable->chr[k] = chr.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % chr.size();
                 if (!chrMapped[k])
                 {
                     chrMapped[k] = true;
                     for (int i = 0; i < 1024; ++i)
-                        NES_PPU_Memory::PatternTable[static_cast<size_t>(k * 1024 + i)]->MapRom(&chrSlots[k], static_cast<uint16_t>(i));
+                        NES_PPU_Memory::PatternTable[static_cast<size_t>(k * 1024 + i)]->MapRom(&slotTable->chr[k], static_cast<uint16_t>(i));
                 }
             }
             NES_PPU::ClearFreshTileCaches();

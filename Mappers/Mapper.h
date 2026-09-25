@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <memory>
 #include <string>
 #include <array>
 #include <cstddef>
@@ -175,8 +176,14 @@ namespace NES
         mutable std::unordered_map<int, WindowCache> chrWindowCache;
         /// Pointer to the current 1 KB piece of PRG / CHR ROM for every 1 KB of CPU / PPU address space.
         /// The mapped memory cells read through these (see AddressSetup::MapRom()).
-        const uint8_t* prgSlots[64] = {};
-        mutable const uint8_t* chrSlots[8] = {};
+        struct SlotTable
+        {
+            const uint8_t* prg[64] = {};
+            const uint8_t* chr[8] = {};
+        };
+        /// Heap allocated so the memory cells can keep reading through it after this mapper is gone
+        /// (see ~Mapper()).
+        std::shared_ptr<SlotTable> slotTable = std::make_shared<SlotTable>();
         bool prgMapped[64] = {};
         mutable bool chrMapped[8] = {};
         void UnmapAllRom();
