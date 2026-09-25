@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_CPU.h"
 #include "AssemblyList.h"
 #include "NES_Register.h"
@@ -157,7 +158,7 @@ namespace NES
         // state never satisfies a wait condition".
         bool TracePC()
         {
-            static const bool enabled = std::getenv("NES_TRACE_PC") != nullptr;
+            static const bool enabled = NES_GETENV("NES_TRACE_PC") != nullptr;
             return enabled;
         }
 
@@ -168,7 +169,7 @@ namespace NES
         // reference emulator - lets that signature be searched for here too.
         bool TraceRAM()
         {
-            static const bool enabled = std::getenv("NES_TRACE_RAM") != nullptr;
+            static const bool enabled = NES_GETENV("NES_TRACE_RAM") != nullptr;
             return enabled;
         }
 
@@ -210,7 +211,7 @@ namespace NES
             if (breakAt < 0)
                 return;
             static const long stepBudget = [] { long s = ParseAddrEnv("NES_BREAK_STEPS"); return s > 0 ? s : 40; }();
-            static const bool once = std::getenv("NES_BREAK_ONCE") != nullptr;
+            static const bool once = NES_GETENV("NES_BREAK_ONCE") != nullptr;
             static bool everArmed = false;
             static long stepsLeft = 0;
 
@@ -240,7 +241,7 @@ namespace NES
                 std::cerr << std::hex << static_cast<int>(NES_Memory::Stack[idx]->value()) << std::dec << " ";
             }
 
-            static const std::string watchList = [] { const char* w = std::getenv("NES_BREAK_WATCH"); return w ? std::string(w) : std::string(); }();
+            static const std::string watchList = [] { const char* w = NES_GETENV("NES_BREAK_WATCH"); return w ? std::string(w) : std::string(); }();
             if (!watchList.empty())
             {
                 std::cerr << " watch=";
@@ -372,9 +373,10 @@ namespace NES
                 if (pcBefore != lastReportedPc)
                 {
                     lastReportedPc = pcBefore;
-                    std::cerr << "[NES_TRACE_PC] last " << AssemblyList::debug.size()
+                    const std::vector<std::string> recent = AssemblyList::DebugTrace();
+                    std::cerr << "[NES_TRACE_PC] last " << recent.size()
                                << " executed instructions before this:" << std::endl;
-                    for (const auto& d : AssemblyList::debug)
+                    for (const auto& d : recent)
                         std::cerr << "[NES_TRACE_PC]   " << d << std::endl;
                 }
             }
@@ -395,7 +397,8 @@ namespace NES
         Interrupt::Check(cycles);
         cycles += Interrupt::TakeDispatchCycles();
         ++instructionCount;
-        totalCyclesEver.fetch_add(static_cast<uint64_t>(cycles), std::memory_order_relaxed);
+        // Only the CPU thread writes this counter, so a plain load+store is enough (no locked add).
+        totalCyclesEver.store(totalCyclesEver.load(std::memory_order_relaxed) + static_cast<uint64_t>(cycles), std::memory_order_relaxed);
 
 
 
@@ -425,7 +428,7 @@ namespace NES
             // exception - see AssemblyList::Debug()) to see what loop, if
             // any, the CPU is actually spinning in.
             std::cerr << "[NES_TRACE_PC] last instructions:" << std::endl;
-            for (const auto& d : AssemblyList::debug)
+            for (const auto& d : AssemblyList::DebugTrace())
                 std::cerr << "[NES_TRACE_PC]   " << d << std::endl;
         }
 
@@ -627,7 +630,7 @@ namespace NES
                 completedFrames.fetch_add(1, std::memory_order_relaxed);
                 if (frameHook)
                     frameHook(completedFrames.load(std::memory_order_relaxed));
-                if (const char* ramLogPath = std::getenv("NES_DUMP_RAM_LOG"))
+                if (const char* ramLogPath = NES_GETENV("NES_DUMP_RAM_LOG"))
                 {
                     // Per-frame CPU-RAM dump straight from the CPU thread (frame
                     // number + $0000-$07FF), so boot frames before the UI loop

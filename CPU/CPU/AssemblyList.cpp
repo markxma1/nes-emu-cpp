@@ -26,7 +26,27 @@
 namespace NES
 {
     std::vector<AssemblyList::Func> AssemblyList::Assembly;
-    std::vector<std::string> AssemblyList::debug;
+    namespace
+    {
+        constexpr unsigned kDebugDepth = 20;
+        struct DebugEntry { uint16_t pc; int operand; };
+        DebugEntry debugRing[kDebugDepth];
+        unsigned debugCount = 0; // total recorded; the newest entry is at (debugCount - 1) % kDebugDepth
+    }
+
+    std::vector<std::string> AssemblyList::DebugTrace()
+    {
+        std::vector<std::string> lines;
+        unsigned n = debugCount < kDebugDepth ? debugCount : kDebugDepth;
+        for (unsigned i = 0; i < n; i++)
+        {
+            const DebugEntry& e = debugRing[(debugCount - n + i) % kDebugDepth];
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "0X%X: 0X%X", e.pc, e.operand);
+            lines.emplace_back(buf);
+        }
+        return lines;
+    }
 
     AssemblyList::AssemblyList()
     {
@@ -59,11 +79,7 @@ namespace NES
 
     void AssemblyList::Debug(uint16_t PC, int b)
     {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "0X%X: 0X%X", PC, b);
-        debug.emplace_back(buf);
-        if (debug.size() > 20)
-            debug.erase(debug.begin());
+        debugRing[debugCount++ % kDebugDepth] = DebugEntry{PC, b};
     }
 
     void AssemblyList::NoInput(const Func& func)

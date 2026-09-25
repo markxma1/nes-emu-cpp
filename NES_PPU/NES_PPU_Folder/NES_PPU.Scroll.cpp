@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_PPU.h"
 #include "NES_PPU_Register.h"
 #include <cstdlib>
@@ -83,7 +84,7 @@ namespace NES
         // Second $2006 write copies t into v. On a visible scanline with
         // rendering on, that re-points the rest of the frame's rows.
         bool rendering = NES_PPU_Register::PPUMASK.b() || NES_PPU_Register::PPUMASK.s();
-        if (std::getenv("NES_TRACE_SPLIT"))
+        if (NES_GETENV("NES_TRACE_SPLIT"))
             std::cerr << "[$2006 v=t] t=0x" << std::hex << loopyT << std::dec << " scanline=" << currentScanline
                       << " rendering=" << rendering << std::endl;
         // The load always reaches v, even while rendering is switched off
@@ -218,7 +219,7 @@ namespace NES
         // RecomputeXScroll(), called again from NES_PPU_Register's $2000
         // write hook - so a same-frame PPUCTRL write arriving after this
         // one still takes effect instead of being silently dropped.
-        if (std::getenv("NES_TRACE_YSCROLL_SPLIT"))
+        if (NES_GETENV("NES_TRACE_YSCROLL_SPLIT"))
             std::cerr << "[XScroll] value=" << value << " scanline=" << CurrentScanline() << std::endl;
         rawXScroll = value;
         RecomputeXScroll();
@@ -252,7 +253,7 @@ namespace NES
         // FIXED - same write-order bug as XScroll(int), see its own FIXED
         // note; fixed the same way (store the raw value, re-derive via
         // RecomputeYScroll() so a later PPUCTRL write still takes effect).
-        if (std::getenv("NES_TRACE_YSCROLL_SPLIT"))
+        if (NES_GETENV("NES_TRACE_YSCROLL_SPLIT"))
             std::cerr << "[YScroll] value=" << value << " scanline=" << CurrentScanline() << std::endl;
         rawYScroll = value;
         RecomputeYScroll();

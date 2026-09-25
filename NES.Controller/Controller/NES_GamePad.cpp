@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_GamePad.h"
 #include <iostream>
 #include <cstdlib>
@@ -134,7 +135,7 @@ namespace NES
     {
         if (strobeHigh)
             P1BID = 0;
-        if (std::getenv("NES_TRACE_PAD"))
+        if (NES_GETENV("NES_TRACE_PAD"))
             std::cerr << "[pad] idx=" << P1BID << " strobe=" << strobeHigh << std::endl;
         // After all 8 buttons have been shifted out a standard controller
         // returns 1 on every further read.

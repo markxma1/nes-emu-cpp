@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_PPU.h"
 #include "Profiler.h"
 #include <mutex>
@@ -278,7 +279,7 @@ namespace NES
 
     // NES_PPU_START_DELAY_DOTS (test aid): start the PPU this many dots behind
     // the CPU, to line up with a reference emulator's own power-on phase.
-    int NES_PPU::currentDot = std::getenv("NES_PPU_START_DELAY_DOTS") ? -std::atoi(std::getenv("NES_PPU_START_DELAY_DOTS")) : 0;
+    int NES_PPU::currentDot = NES_GETENV("NES_PPU_START_DELAY_DOTS") ? -std::atoi(NES_GETENV("NES_PPU_START_DELAY_DOTS")) : 0;
     int NES_PPU::currentScanline = 0;
     std::array<NES_PPU::Color, 240> NES_PPU::backdropByScanline;
     std::function<void()> NES_PPU::scanlineCallback;
@@ -348,7 +349,7 @@ namespace NES
         {
             scanlineIrqClockFired = true;
             int nextScanline = (currentScanline + 1) % 262;
-            if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
+            if (NES_GETENV("NES_TRACE_MMC3_IRQLATCH"))
                 std::cerr << "[dot260clock] currentScanline=" << currentScanline
                           << " nextScanline=" << nextScanline
                           << " PC=0x" << std::hex << NES_Register::PC << std::dec << std::endl;
@@ -426,10 +427,10 @@ namespace NES
         {
             // TEMPORARY diagnostic aid - opt-in via NES_TRACE_VBLANK241, off
             // by default.
-            if (std::getenv("NES_TRACE_VBLANK241"))
+            if (NES_GETENV("NES_TRACE_VBLANK241"))
                 std::cerr << "[VBLANK241] PPUCTRL.V=" << NES_PPU_Register::PPUCTRL.V() << std::endl;
             static bool firstVblankSkipped = false;
-            if (!firstVblankSkipped && std::getenv("NES_SKIP_FIRST_VBLANK"))
+            if (!firstVblankSkipped && NES_GETENV("NES_SKIP_FIRST_VBLANK"))
             {
                 firstVblankSkipped = true;
                 return;
@@ -550,7 +551,7 @@ namespace NES
             return;
         }
 
-        if (std::getenv("NES_TRACE_YSCROLL_SPLIT") && screenY >= 185 && screenY <= 200)
+        if (NES_GETENV("NES_TRACE_YSCROLL_SPLIT") && screenY >= 185 && screenY <= 200)
             std::cerr << "[bg-scanline] screenY=" << screenY << " yScroll=" << yScroll
                       << " xScroll=" << xScroll << std::endl;
         int logicalY = ((yScroll + screenY) % 480 + 480) % 480;
@@ -559,7 +560,7 @@ namespace NES
         int localTileRow = (tileRow < 30) ? tileRow : tileRow - 30;
         int nrLeft = (tileRow < 30) ? 0 : 2;
         int nrRight = (tileRow < 30) ? 1 : 3;
-        if (std::getenv("NES_TRACE_YSCROLL_SPLIT") && screenY >= 216 && screenY <= 239)
+        if (NES_GETENV("NES_TRACE_YSCROLL_SPLIT") && screenY >= 216 && screenY <= 239)
             std::cerr << "[bg-bottom] screenY=" << screenY << " yScroll=" << yScroll << " tileRow=" << tileRow
                       << " nrLeft=" << nrLeft << std::endl;
 
@@ -585,7 +586,7 @@ namespace NES
         // of scanlines, to check whether tile 0 (which fills the otherwise-
         // blank bottom nametable rows) actually decodes differently before
         // vs. after a mid-frame CHR-bank switch.
-        if (std::getenv("NES_TRACE_TILE0_COLOR") && (screenY == 50 || screenY == 150 || screenY == 220))
+        if (NES_GETENV("NES_TRACE_TILE0_COLOR") && (screenY == 50 || screenY == 150 || screenY == 220))
         {
             NES_PPU::Color c = DecodeBackgroundTileFresh(0, attrLeft[static_cast<size_t>(localTileRow * 32)]).GetPixel(0, 0);
             std::cerr << "[tile0color] screenY=" << screenY << " R=" << (int)c.R << " G=" << (int)c.G
@@ -801,7 +802,7 @@ namespace NES
                             // TEMPORARY diagnostic aid - opt-in via
                             // NES_TRACE_2002POLL, off by default (same
                             // switch as INITPPUSTATUS()'s $2002-read trace).
-                            if (std::getenv("NES_TRACE_2002POLL"))
+                            if (NES_GETENV("NES_TRACE_2002POLL"))
                                 std::cerr << "[sprite0hit] screenY=" << screenY << " spriteX=" << spriteScreenX
                                           << std::endl;
                             break;

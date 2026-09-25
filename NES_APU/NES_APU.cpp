@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_APU.h"
 #include <chrono>
 #include <cstdlib>
@@ -131,7 +132,7 @@ namespace NES
 
     void NES_APU::WriteRegister(uint16_t address, uint8_t value)
     {
-        if (std::getenv("NES_TRACE_APU_RATE"))
+        if (NES_GETENV("NES_TRACE_APU_RATE"))
         {
             static auto lastReportTime = std::chrono::steady_clock::now();
             static uint64_t writeCount = 0;

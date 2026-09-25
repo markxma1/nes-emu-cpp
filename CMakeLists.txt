@@ -99,3 +99,13 @@ enable_testing()
 if(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)
     add_subdirectory(tests)
 endif()
+
+# Headless speed test / benchmark (no window, no throttle) - see tools/nes_bench.cpp.
+add_executable(nes-bench ${NES_CORE_SOURCES} ${CMAKE_SOURCE_DIR}/tools/nes_bench.cpp)
+target_include_directories(nes-bench PRIVATE ${NES_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(nes-bench PRIVATE ${OpenCV_LIBS} pthread)
+add_custom_command(TARGET nes-bench POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/NES_PPU/Palette/Palletes
+        $<TARGET_FILE_DIR:nes-bench>/Palletes
+)

@@ -35,6 +35,7 @@
 /// entry points. Only the window toggling (via keys) and the CPU-speed
 /// line chart (drawn directly with OpenCV) live here - the actual debug
 /// data comes from the core code.
+#include "EnvFlag.h"
 #include <opencv2/opencv.hpp>
 
 #include "NES_Console.h"
@@ -212,7 +213,7 @@ namespace
     /// doesn't move (which would point elsewhere, e.g. NES_GamePad itself).
     void TraceInputSourcesIfRequested(long uiFrame)
     {
-        if (!std::getenv("NES_TRACE_INPUT") || uiFrame % 60 != 0)
+        if (!NES_GETENV("NES_TRACE_INPUT") || uiFrame % 60 != 0)
             return;
         for (auto& src : inputSources)
         {
@@ -947,10 +948,10 @@ int main(int argc, char** argv)
     // minutes for a frame deep into a long recorded session. Runs once and
     // exits immediately, before the real CPU thread/UI loop below ever
     // starts.
-    if (const char* renderStatePath = std::getenv("NES_RENDER_FROM_STATE"))
+    if (const char* renderStatePath = NES_GETENV("NES_RENDER_FROM_STATE"))
     {
-        const char* frameEnv = std::getenv("NES_RENDER_FROM_STATE_FRAME");
-        const char* outEnv = std::getenv("NES_RENDER_FROM_STATE_OUT");
+        const char* frameEnv = NES_GETENV("NES_RENDER_FROM_STATE_FRAME");
+        const char* outEnv = NES_GETENV("NES_RENDER_FROM_STATE_OUT");
         if (!frameEnv || !outEnv)
         {
             std::cerr << "NES_RENDER_FROM_STATE needs NES_RENDER_FROM_STATE_FRAME and "
@@ -1039,7 +1040,7 @@ int main(int argc, char** argv)
     // reached by the time this AfterSet callback runs (typically already
     // past the STA that caused it) - close enough to identify the
     // responsible code region, not necessarily the STA's own exact address.
-    if (const char* traceReadEnv = std::getenv("NES_TRACE_READ"))
+    if (const char* traceReadEnv = NES_GETENV("NES_TRACE_READ"))
     {
         std::string spec(traceReadEnv);
         size_t pos = 0;
@@ -1059,7 +1060,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (const char* traceWriteEnv = std::getenv("NES_TRACE_WRITE"))
+    if (const char* traceWriteEnv = NES_GETENV("NES_TRACE_WRITE"))
     {
         std::string spec(traceWriteEnv);
         size_t pos = 0;
@@ -1115,7 +1116,7 @@ int main(int argc, char** argv)
     };
 
     bool autoLoadedSave = false;
-    if (const char* autoLoadSaveEnv = std::getenv("NES_AUTO_LOAD_SAVE"))
+    if (const char* autoLoadSaveEnv = NES_GETENV("NES_AUTO_LOAD_SAVE"))
     {
         autoLoadedSave = NES::NES_SaveState::Load(autoLoadSaveEnv);
         std::cout << (autoLoadedSave ? "Auto-loaded save state: " : "Failed to auto-load save state: ")
@@ -1131,7 +1132,7 @@ int main(int argc, char** argv)
             // visually confirm NES_PPU::RecomputeXScroll()'s fix without
             // needing to get past whatever is blocking headless input from
             // reaching this game's own main loop.
-            if (std::getenv("NES_SIMULATE_SCROLL_WRAP"))
+            if (NES_GETENV("NES_SIMULATE_SCROLL_WRAP"))
             {
                 NES::NES_PPU::ScrollXoY = true;
                 NES::NES_PPU_Register::PPUSCROLL->Value(0x00);
@@ -1146,7 +1147,7 @@ int main(int argc, char** argv)
             // effects), so this always reflects whichever PRG bank is
             // currently switched in - unlike reading the raw .nes file,
             // which would need the current MMC1 bank state applied by hand.
-            if (const char* rangeEnv = std::getenv("NES_DUMP_MEM_RANGE"))
+            if (const char* rangeEnv = NES_GETENV("NES_DUMP_MEM_RANGE"))
             {
                 std::string spec(rangeEnv);
                 size_t c1 = spec.find(':');
@@ -1172,7 +1173,7 @@ int main(int argc, char** argv)
             // existing memory-viewer read path's own reasoning for using the
             // unhooked getter - a raw poke shouldn't trigger a register side
             // effect unless the target genuinely is a hooked register.
-            if (const char* pokeEnv = std::getenv("NES_POKE"))
+            if (const char* pokeEnv = NES_GETENV("NES_POKE"))
             {
                 std::string spec(pokeEnv);
                 size_t c1 = spec.find(':');
@@ -1199,7 +1200,7 @@ int main(int argc, char** argv)
     // so a headless test that needs to sit through a long real-time wait
     // (e.g. a title-screen attract-mode demo) doesn't also have to wait at
     // real NTSC speed to get there.
-    if (const char* speedEnv = std::getenv("NES_SPEED_MULTIPLIER"))
+    if (const char* speedEnv = NES_GETENV("NES_SPEED_MULTIPLIER"))
         NES::NES_Console::setSpeedMultiplier(std::atof(speedEnv));
 
     // Stops the running CPU thread, loads a different ROM, and starts a
@@ -1256,48 +1257,48 @@ int main(int argc, char** argv)
     // approach used to investigate the "STAGE 1 never progresses" bug:
     // lets this be driven headlessly (no real keyboard/window focus needed)
     // for automated comparison against a reference emulator.
-    const char* autoStartEnv = std::getenv("NES_AUTO_START_FRAME");
+    const char* autoStartEnv = NES_GETENV("NES_AUTO_START_FRAME");
     const long autoStartFrame = autoStartEnv ? std::atol(autoStartEnv) : -1;
     // NEW, same spirit as autoStartFrame - a menu that needs Start pressed
     // more than once (e.g. a "press start" splash, then a player-count
     // menu) can't be reached by a single 30-frame press. NES_AUTO_START_COUNT
     // repeats the press every NES_AUTO_START_INTERVAL frames (default 90,
     // i.e. ~1.5 real seconds at ~60Hz) starting at autoStartFrame.
-    const char* autoStartCountEnv = std::getenv("NES_AUTO_START_COUNT");
+    const char* autoStartCountEnv = NES_GETENV("NES_AUTO_START_COUNT");
     const long autoStartCount = autoStartCountEnv ? std::atol(autoStartCountEnv) : 1;
-    const char* autoStartIntervalEnv = std::getenv("NES_AUTO_START_INTERVAL");
+    const char* autoStartIntervalEnv = NES_GETENV("NES_AUTO_START_INTERVAL");
     const long autoStartInterval = autoStartIntervalEnv ? std::atol(autoStartIntervalEnv) : 90;
     // NEW - holds RIGHT from this frame onward (until quit), for reaching
     // an in-level scrolling glitch headlessly instead of needing a real
     // keyboard/gamepad in front of the window.
-    const char* autoRightEnv = std::getenv("NES_AUTO_RIGHT_FRAME");
+    const char* autoRightEnv = NES_GETENV("NES_AUTO_RIGHT_FRAME");
     const long autoRightFrame = autoRightEnv ? std::atol(autoRightEnv) : -1;
     // Same spirit as NES_AUTO_RIGHT_FRAME - holds UP from this frame onward,
     // for reaching a vertical-scrolling glitch (e.g. climbing a pole)
     // headlessly.
-    const char* autoUpEnv = std::getenv("NES_AUTO_UP_FRAME");
+    const char* autoUpEnv = NES_GETENV("NES_AUTO_UP_FRAME");
     const long autoUpFrame = autoUpEnv ? std::atol(autoUpEnv) : -1;
     // Same spirit as NES_AUTO_UP_FRAME - holds DOWN instead, for reaching a
     // vertical-scrolling glitch that only shows up scrolling the other way.
-    const char* autoDownEnv = std::getenv("NES_AUTO_DOWN_FRAME");
+    const char* autoDownEnv = NES_GETENV("NES_AUTO_DOWN_FRAME");
     const long autoDownFrame = autoDownEnv ? std::atol(autoDownEnv) : -1;
     // Same spirit as NES_AUTO_RIGHT_FRAME/NES_AUTO_UP_FRAME - holds SELECT
     // from this frame onward, for reaching an interaction that specifically
     // needs SELECT (not START) headlessly.
-    const char* autoSelectEnv = std::getenv("NES_AUTO_SELECT_FRAME");
+    const char* autoSelectEnv = NES_GETENV("NES_AUTO_SELECT_FRAME");
     const long autoSelectFrame = autoSelectEnv ? std::atol(autoSelectEnv) : -1;
     // Same spirit as NES_AUTO_START_COUNT/INTERVAL - presses A (jump) for 30
     // frames, repeating every NES_AUTO_JUMP_INTERVAL frames (default 60, ~1
     // real second), NES_AUTO_JUMP_COUNT times starting at NES_AUTO_JUMP_FRAME.
     // Added specifically to reproduce "climb a pipe, jump 1-2x, background
     // goes black" headlessly from a save state taken just before the bug.
-    const char* autoJumpEnv = std::getenv("NES_AUTO_JUMP_FRAME");
+    const char* autoJumpEnv = NES_GETENV("NES_AUTO_JUMP_FRAME");
     const long autoJumpFrame = autoJumpEnv ? std::atol(autoJumpEnv) : -1;
-    const char* autoJumpCountEnv = std::getenv("NES_AUTO_JUMP_COUNT");
+    const char* autoJumpCountEnv = NES_GETENV("NES_AUTO_JUMP_COUNT");
     const long autoJumpCount = autoJumpCountEnv ? std::atol(autoJumpCountEnv) : 1;
-    const char* autoJumpIntervalEnv = std::getenv("NES_AUTO_JUMP_INTERVAL");
+    const char* autoJumpIntervalEnv = NES_GETENV("NES_AUTO_JUMP_INTERVAL");
     const long autoJumpInterval = autoJumpIntervalEnv ? std::atol(autoJumpIntervalEnv) : 60;
-    const char* autoQuitEnv = std::getenv("NES_AUTO_QUIT_FRAME");
+    const char* autoQuitEnv = NES_GETENV("NES_AUTO_QUIT_FRAME");
     const long autoQuitFrame = autoQuitEnv ? std::atol(autoQuitEnv) : -1;
     // Same spirit as NES_AUTO_START_FRAME/NES_DUMP_FRAME above - opt-in,
     // off by default. Opens the Name Table debug window headlessly, e.g.
@@ -1305,7 +1306,7 @@ int main(int argc, char** argv)
     // NES_Console::getNameTabeleDebugOverlay()'s own comment describes
     // (real bug: a UI-thread NameTabele() call raced the CPU thread's live
     // NES_PPU_Memory writes) - this is how it was originally found.
-    if (std::getenv("NES_AUTO_OPEN_NAMETABLE"))
+    if (NES_GETENV("NES_AUTO_OPEN_NAMETABLE"))
         nameTableWindow.toggle();
 
     // Same spirit as NES_AUTO_OPEN_NAMETABLE above - opens the OAM Viewer
@@ -1313,7 +1314,7 @@ int main(int argc, char** argv)
     // instead of a black placeholder (RenderFrame() only bothers rebuilding
     // it while oamWindow.visible is true - see NES_Console::
     // setOAMDebugWindowVisible()'s own comment).
-    if (std::getenv("NES_AUTO_OPEN_OAM"))
+    if (NES_GETENV("NES_AUTO_OPEN_OAM"))
         oamWindow.toggle();
 
     // Opt-in via NES_PLAYBACK_INPUT (a recording file path, see
@@ -1325,7 +1326,7 @@ int main(int argc, char** argv)
     // Player1 at all.
     std::map<long, std::vector<std::pair<std::string, bool>>> playbackEvents;
     bool playbackDriven = false;
-    if (const char* playbackEnv = std::getenv("NES_PLAYBACK_INPUT"))
+    if (const char* playbackEnv = NES_GETENV("NES_PLAYBACK_INPUT"))
     {
         playbackEvents = LoadPlaybackFile(playbackEnv);
         playbackDriven = true;
@@ -1343,10 +1344,10 @@ int main(int argc, char** argv)
     // emulated frame N from the CPU thread at the moment it completes, so the image
     // is exactly frame N no matter how fast the UI loop runs (used to compare
     // renderer changes pixel for pixel).
-    if (const char* dumpAtEnv = std::getenv("NES_DUMP_FRAME_AT"))
+    if (const char* dumpAtEnv = NES_GETENV("NES_DUMP_FRAME_AT"))
     {
         const long long dumpAt = std::atoll(dumpAtEnv);
-        const std::string dumpPath = std::getenv("NES_DUMP_FRAME_PATH") ? std::getenv("NES_DUMP_FRAME_PATH") : "frame.png";
+        const std::string dumpPath = NES_GETENV("NES_DUMP_FRAME_PATH") ? NES_GETENV("NES_DUMP_FRAME_PATH") : "frame.png";
         auto previousHook = NES::NES_CPU::frameHook;
         NES::NES_CPU::frameHook = [previousHook, dumpAt, dumpPath](long long frame)
         {
@@ -1389,7 +1390,7 @@ int main(int argc, char** argv)
         NES_PROFILE_SCOPE("ui_iteration", NES::NES_CPU::completedFrames.load(std::memory_order_relaxed));
         uiFrame = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
         lastAppliedPlaybackFrame = uiFrame;
-        if (std::getenv("NES_TRACE_PC") && uiFrame % 30 == 0)
+        if (NES_GETENV("NES_TRACE_PC") && uiFrame % 30 == 0)
             std::cout << "  frame " << uiFrame << " PC=0x" << std::hex << NES::NES_Register::PC << std::dec
                       << " xScroll=" << NES::NES_PPU::xScroll << " yScroll=" << NES::NES_PPU::yScroll << std::endl;
         // TEMPORARY diagnostic aid - opt-in via NES_TRACE_FPS, off by
@@ -1397,7 +1398,7 @@ int main(int argc, char** argv)
         // CPU pacing redesign (NES_CPU::Run()) can be verified headlessly
         // against a real wall-clock duration instead of eyeballing the
         // CPU-speed debug window.
-        if (std::getenv("NES_TRACE_FPS") && uiFrame % 60 == 0)
+        if (NES_GETENV("NES_TRACE_FPS") && uiFrame % 60 == 0)
             std::cout << "  [fps] frame=" << uiFrame << " measuredFPS=" << NES::NES_Console::getMeasuredFPS()
                       << " target=" << (60.0988 * NES::NES_Console::getSpeedMultiplier())
                       << " multiplier=" << NES::NES_Console::getSpeedMultiplier() << std::endl;
@@ -1435,7 +1436,7 @@ int main(int argc, char** argv)
         // thread-safe (writes NES_Memory from the UI thread while the CPU
         // thread runs) - throwaway diagnostic only, never enabled by
         // default.
-        if (std::getenv("NES_FORCE_9A_ZERO"))
+        if (NES_GETENV("NES_FORCE_9A_ZERO"))
             NES::NES_Memory::Memory[0x9A]->value(0);
 
         NES_PPU::Picture frame = NES::NES_Console::getDisplay();
@@ -1452,10 +1453,10 @@ int main(int argc, char** argv)
         // may step *past* autoQuitFrame without ever exactly equaling it.
         if (autoQuitFrame >= 0 && uiFrame >= autoQuitFrame && previousRealFrame < autoQuitFrame)
         {
-            if (std::getenv("NES_TRACE_PPU_STATE"))
+            if (NES_GETENV("NES_TRACE_PPU_STATE"))
                 printPpuState("[quit]");
 
-            if (std::getenv("NES_TRACE_NMI_COUNTER"))
+            if (NES_GETENV("NES_TRACE_NMI_COUNTER"))
                 std::cout << "  [quit] $92 (NMI vblank counter) = 0x" << std::hex
                           << static_cast<int>(NES::NES_Console::getMemoryByte(0x92)) << std::dec << std::endl;
 
@@ -1465,7 +1466,7 @@ int main(int argc, char** argv)
             // clean-boot/no-save-state run (e.g. the attract-mode demo) can
             // still be inspected - that other one only fires right after a
             // save-state load.
-            if (const char* rangeEnv = std::getenv("NES_DUMP_MEM_RANGE_AT_QUIT"))
+            if (const char* rangeEnv = NES_GETENV("NES_DUMP_MEM_RANGE_AT_QUIT"))
             {
                 std::string spec(rangeEnv);
                 size_t c1 = spec.find(':');
@@ -1494,7 +1495,7 @@ int main(int argc, char** argv)
             // single file, 1024 bytes per bank (960 nametable + 64
             // attribute), so bank content can be compared directly instead
             // of inferred from a screenshot.
-            if (const char* ntPath = std::getenv("NES_DUMP_PHYSICAL_BANKS"))
+            if (const char* ntPath = NES_GETENV("NES_DUMP_PHYSICAL_BANKS"))
             {
                 std::ofstream out(ntPath, std::ios::binary | std::ios::trunc);
                 for (auto& bank : NES::NES_PPU_Memory::NameTablePhysicalBanks())
@@ -1518,7 +1519,7 @@ int main(int argc, char** argv)
             // with its raw tile index/bank/palette - for spotting whether
             // one specific sprite is reading garbage OAM/CHR state without
             // needing to guess from a screenshot alone.
-            if (std::getenv("NES_TRACE_OAM"))
+            if (NES_GETENV("NES_TRACE_OAM"))
             {
                 for (size_t i = 0; i < NES::NES_PPU_OAM::SpriteTile.size(); i++)
                 {
@@ -1543,7 +1544,7 @@ int main(int argc, char** argv)
             // regardless of the bankForSlot fix - found live via real
             // gameplay still showing identical ("AA/AA") content in all 4
             // Name Table debug quadrants after that fix.
-            if (std::getenv("NES_TEST_WRITE_ISOLATION"))
+            if (NES_GETENV("NES_TEST_WRITE_ISOLATION"))
             {
                 NES::NES_Memory::Memory[0x2002]->Value(); // reset $2006 write toggle
                 NES::NES_Memory::Memory[0x2006]->Value(0x20);
@@ -1569,7 +1570,7 @@ int main(int argc, char** argv)
             // Table debug overlay bitmap directly (not a screenshot) and
             // sums each quadrant into a checksum, so quadrant equality can
             // be verified numerically instead of by eye.
-            if (std::getenv("NES_TEST_OVERLAY_QUADRANTS"))
+            if (NES_GETENV("NES_TEST_OVERLAY_QUADRANTS"))
             {
                 NES_PPU::Picture overlay = NES::NES_Console::getNameTabeleDebugOverlay();
                 int w = overlay.Width(), h = overlay.Height();
@@ -1587,7 +1588,7 @@ int main(int argc, char** argv)
                           << " TR==BR:" << (sum[1] == sum[3]) << " BL==BR:" << (sum[2] == sum[3]) << std::endl;
             }
 
-            const char* dumpPath = std::getenv("NES_DUMP_FRAME");
+            const char* dumpPath = NES_GETENV("NES_DUMP_FRAME");
             if (dumpPath)
                 cv::imwrite(dumpPath, img);
 
@@ -1596,7 +1597,7 @@ int main(int argc, char** argv)
             // CHR banks) so a missing/wrong tile can be checked directly
             // against the raw CHR data, independent of which nametable
             // entry currently references it.
-            const char* dumpPtPath = std::getenv("NES_DUMP_PATTERNTABLE");
+            const char* dumpPtPath = NES_GETENV("NES_DUMP_PATTERNTABLE");
             if (dumpPtPath)
             {
                 NES_PPU::Picture patterns = NES::NES_Console::getPatternTable(0);
@@ -1606,7 +1607,7 @@ int main(int argc, char** argv)
             // Same spirit as NES_DUMP_FRAME/NES_DUMP_PATTERNTABLE above -
             // dumps the Name Table debug overlay so the user-reported "Name
             // Table window is black" regression can be checked headlessly.
-            const char* dumpNtPath = std::getenv("NES_DUMP_NAMETABLE");
+            const char* dumpNtPath = NES_GETENV("NES_DUMP_NAMETABLE");
             if (dumpNtPath)
             {
                 NES_PPU::Picture nameTable = NES::NES_Console::getNameTabeleDebugOverlay();
@@ -1616,7 +1617,7 @@ int main(int argc, char** argv)
             // Same spirit as NES_DUMP_NAMETABLE above - dumps the OAM Viewer
             // debug overlay (see NES_PPU::OAMDebugOverlay()'s own comment).
             // Needs NES_AUTO_OPEN_OAM set too, or this is just a black image.
-            const char* dumpOamPath = std::getenv("NES_DUMP_OAM");
+            const char* dumpOamPath = NES_GETENV("NES_DUMP_OAM");
             if (dumpOamPath)
             {
                 NES_PPU::Picture oam = NES::NES_Console::getOAMDebugOverlay();
@@ -1630,7 +1631,7 @@ int main(int argc, char** argv)
             // NES_PPU_Memory, bypassing the (separately, possibly still
             // broken) debug overlay - to see whether the game ever writes
             // real HUD tile data there at all.
-            if (std::getenv("NES_DUMP_HUD_ROWS"))
+            if (NES_GETENV("NES_DUMP_HUD_ROWS"))
             {
                 std::cerr << "[hudrows] $38=0x" << std::hex
                           << static_cast<int>(NES::NES_Memory::Memory[0x38]->value()) << std::dec << std::endl;
@@ -1661,7 +1662,7 @@ int main(int argc, char** argv)
             // compare backdrop/palette RAM state between two different
             // screens (e.g. normal gameplay vs. a stage-clear screen)
             // instead of inferring it indirectly from rendered screenshots.
-            if (std::getenv("NES_DUMP_PALETTE"))
+            if (NES_GETENV("NES_DUMP_PALETTE"))
             {
                 std::cerr << "[palette] PPUMASK=0x" << std::hex
                           << static_cast<int>(NES::NES_PPU_Register::PPUMASK.adress->value()) << std::dec
@@ -1851,7 +1852,7 @@ int main(int argc, char** argv)
             if (autoRightActive)
             {
                 SetButton(NES::NES_GamePad::Player1, "R", true);
-                if (std::getenv("NES_TRACE_AUTORIGHT") && uiFrame % 30 == 0)
+                if (NES_GETENV("NES_TRACE_AUTORIGHT") && uiFrame % 30 == 0)
                     std::cout << "  [autoright] frame=" << uiFrame
                               << " R=" << GetButton(NES::NES_GamePad::Player1, "R") << std::endl;
             }
@@ -1881,7 +1882,7 @@ int main(int argc, char** argv)
         // completedFrames-based replay) to find the exact first frame two
         // emulators' state diverges, rather than guessing from rendered
         // screenshots alone.
-        if (const char* stateLogPath = std::getenv("NES_DUMP_STATE_LOG"))
+        if (const char* stateLogPath = NES_GETENV("NES_DUMP_STATE_LOG"))
         {
             static std::ofstream stateLog(stateLogPath, std::ios::binary | std::ios::trunc);
             // Guard against writing the same frame twice - the UI loop can

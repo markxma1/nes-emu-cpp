@@ -24,19 +24,48 @@ namespace NES
 
     AddressSetup::AddressSetup(uint8_t value, int id) : id(id), valueCore(value) {}
 
+    AddressSetup::AddressSetup(const AddressSetup& other)
+        : Address(other), id(other.id), hooks(other.hooks ? std::make_unique<HookSet>(*other.hooks) : nullptr),
+          oldValue(other.oldValue), valueCore(other.valueCore)
+    {
+    }
+
+    AddressSetup& AddressSetup::operator=(const AddressSetup& other)
+    {
+        if (this != &other)
+        {
+            id = other.id;
+            hooks = other.hooks ? std::make_unique<HookSet>(*other.hooks) : nullptr;
+            oldValue = other.oldValue;
+            valueCore = other.valueCore;
+        }
+        return *this;
+    }
+
     uint8_t AddressSetup::Value() const
     {
-        beforGet();
+        if (!hooks)
+            return valueCore;
+        if (hooks->beforGet)
+            hooks->beforGet();
         uint8_t temp = valueCore;
-        afterGet();
+        if (hooks->afterGet)
+            hooks->afterGet();
         return temp;
     }
 
     void AddressSetup::Value(uint8_t v)
     {
-        beforSet();
+        if (!hooks)
+        {
+            valueCore = v;
+            return;
+        }
+        if (hooks->beforSet)
+            hooks->beforSet();
         valueCore = v;
-        afterSet(v);
+        if (hooks->afterSet)
+            hooks->afterSet(v);
     }
 
     bool AddressSetup::isNew() const

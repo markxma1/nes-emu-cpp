@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "Mapper_MMC3.h"
 #include "NES_CPU.h"
 #include "INES.h"
@@ -71,7 +72,7 @@ namespace NES
 
     void Mapper_MMC3::WriteRegister(uint16_t address, uint8_t value)
     {
-        if (std::getenv("NES_TRACE_MMC3W"))
+        if (NES_GETENV("NES_TRACE_MMC3W"))
             std::cerr << "[mmc3w] " << std::hex << address << " <- " << static_cast<int>(value) << std::dec
                       << " scanline=" << NES_PPU::CurrentScanline() << " frame=" << NES_CPU::completedFrames.load() << std::endl;
         bool odd = (address & 0x0001) != 0;
@@ -102,7 +103,7 @@ namespace NES
     void Mapper_MMC3::WriteIrqLatch(uint8_t value)
     {
         irqLatch = value;
-        if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
+        if (NES_GETENV("NES_TRACE_MMC3_IRQLATCH"))
             std::cerr << "[irqLatch] set to 0x" << std::hex << static_cast<int>(value) << std::dec << std::endl;
     }
 
@@ -125,7 +126,7 @@ namespace NES
     void Mapper_MMC3::WriteIrqEnable()
     {
         irqEnabled = true;
-        if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
+        if (NES_GETENV("NES_TRACE_MMC3_IRQLATCH"))
             std::cerr << "[irqEnable] enabled, latch=0x" << std::hex << static_cast<int>(irqLatch) << std::dec << std::endl;
     }
 
@@ -143,7 +144,7 @@ namespace NES
         if (irqCounter == 0 && irqEnabled)
         {
             Interrupt::IRQ(true);
-            if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
+            if (NES_GETENV("NES_TRACE_MMC3_IRQLATCH"))
                 std::cerr << "[irqFire] counter hit 0 at scanline=" << NES_PPU::CurrentScanline()
                           << " latch=0x" << std::hex << static_cast<int>(irqLatch) << std::dec << std::endl;
         }
@@ -298,7 +299,7 @@ namespace NES
         size_t numBanks1k = chr.size() / 1024;
         if (numBanks1k == 0)
             return;
-        if (std::getenv("NES_TRACE_MMC3_CHR"))
+        if (NES_GETENV("NES_TRACE_MMC3_CHR"))
             std::cerr << "[mmc3-chr] bankSelect=0x" << std::hex << static_cast<int>(bankSelect) << std::dec
                       << " r0=" << static_cast<int>(r[0]) << " r1=" << static_cast<int>(r[1])
                       << " r2=" << static_cast<int>(r[2]) << " r3=" << static_cast<int>(r[3])

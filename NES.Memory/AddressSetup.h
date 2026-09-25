@@ -17,6 +17,7 @@
 #pragma once
 #include "Address.h"
 #include <functional>
+#include <memory>
 
 namespace NES
 {
@@ -38,6 +39,10 @@ namespace NES
 
         /// Creates a cell with value 0 for the given address `id`.
         explicit AddressSetup(int id);
+        /// Copies value and hooks.
+        AddressSetup(const AddressSetup& other);
+        /// Copies value and hooks.
+        AddressSetup& operator=(const AddressSetup& other);
         /// Creates a cell with an initial value for the given address `id`.
         AddressSetup(uint8_t value, int id);
 
@@ -57,24 +62,24 @@ namespace NES
         void ID(int v) { id = v; }
 
         /// Hook run before the value is read.
-        func BeforGet() const { return beforGet; }
+        func BeforGet() const { return hooks && hooks->beforGet ? hooks->beforGet : func([] {}); }
         /// Sets the hook run before the value is read.
-        void BeforGet(func f) { beforGet = std::move(f); }
+        void BeforGet(func f) { Hooks().beforGet = std::move(f); }
 
         /// Hook run after the value is read.
-        func AfterGet() const { return afterGet; }
+        func AfterGet() const { return hooks && hooks->afterGet ? hooks->afterGet : func([] {}); }
         /// Sets the hook run after the value is read.
-        void AfterGet(func f) { afterGet = std::move(f); }
+        void AfterGet(func f) { Hooks().afterGet = std::move(f); }
 
         /// Hook run before the value is written.
-        func BeforSet() const { return beforSet; }
+        func BeforSet() const { return hooks && hooks->beforSet ? hooks->beforSet : func([] {}); }
         /// Sets the hook run before the value is written.
-        void BeforSet(func f) { beforSet = std::move(f); }
+        void BeforSet(func f) { Hooks().beforSet = std::move(f); }
 
         /// Hook run after the value is written; receives the written value.
-        funcOut AfterSet() const { return afterSet; }
+        funcOut AfterSet() const { return hooks && hooks->afterSet ? hooks->afterSet : funcOut([](uint8_t) {}); }
         /// Sets the hook run after the value is written.
-        void AfterSet(funcOut f) { afterSet = std::move(f); }
+        void AfterSet(funcOut f) { Hooks().afterSet = std::move(f); }
 
         /// True if the raw value changed since the last setAsOld() call.
         bool isNew() const override;
@@ -84,11 +89,22 @@ namespace NES
         std::string ToString() const override;
 
     private:
+        /// The four hooks. Only allocated once a hook is set: most of the 64 KB of cells never have
+        /// one, and skipping the empty std::function calls makes every plain memory access cheap.
+        struct HookSet
+        {
+            func beforGet, afterGet, beforSet;
+            funcOut afterSet;
+        };
+        HookSet& Hooks()
+        {
+            if (!hooks)
+                hooks = std::make_unique<HookSet>();
+            return *hooks;
+        }
+
         int id = 0;
-        func beforGet = [] {};
-        func afterGet = [] {};
-        func beforSet = [] {};
-        funcOut afterSet = [](uint8_t) {};
+        std::unique_ptr<HookSet> hooks;
         uint8_t oldValue = 0;
         uint8_t valueCore = 0;
     };

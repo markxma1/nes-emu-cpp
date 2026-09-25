@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "Interrupt.h"
 #include "NES_PPU.h"
 #include "NES_CPU.h"
@@ -73,7 +74,7 @@ namespace NES
         NES_Register::P.Interrupt(true);
         IRQ(false);
         dispatchCycles += 7;
-        if (std::getenv("NES_TRACE_MMC3_IRQLATCH"))
+        if (NES_GETENV("NES_TRACE_MMC3_IRQLATCH"))
             std::cerr << "[irqServiced] scanline=" << NES_PPU::CurrentScanline() << " jumped to 0x" << std::hex << NES_Register::PC << std::dec << std::endl;
     }
 
@@ -97,7 +98,7 @@ namespace NES
     {
         if (!NMI() || nmiSuppressed)
             return;
-        if (std::getenv("NES_TRACE_NMI_CYCLES"))
+        if (NES_GETENV("NES_TRACE_NMI_CYCLES"))
             std::cerr << "NMI cycles=" << NES_CPU::totalCyclesEver.load() << std::endl;
         ReplacePC(0xfffa, false, true);
         NES_Register::P.Interrupt(true);

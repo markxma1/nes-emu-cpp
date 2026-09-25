@@ -33,8 +33,10 @@ namespace NES
         /// One opcode handler: a callable executing a single instruction.
         using Func = std::function<void()>;
 
-        /// Debug trace of recently executed instructions (printed on a crash or when tracing).
-        static std::vector<std::string> debug;
+        /// The last 20 executed instructions as text ("0XPC: 0XOPERAND"), oldest first
+        /// (printed on a crash or when tracing). Recorded in a small ring buffer and only
+        /// formatted here, so recording costs almost nothing per instruction.
+        static std::vector<std::string> DebugTrace();
 
         AssemblyList();
 

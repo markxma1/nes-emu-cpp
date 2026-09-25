@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "NES_PPU_Register.h"
 #include "NES_Memory.h"
 #include "NES_Register.h"
@@ -244,7 +245,7 @@ namespace NES
             // and value, to answer directly (instead of inferring from
             // snapshots) whether/where a game's nametable-streaming code is
             // actually writing.
-            if (std::getenv("NES_TRACE_PPUDATA"))
+            if (NES_GETENV("NES_TRACE_PPUDATA"))
                 std::cerr << "[PPUDATA] $" << std::hex << PPUPCADDR << " = $" << static_cast<int>(value)
                           << " PC=0x" << NES_Register::PC << std::dec << std::endl;
             // TEMPORARY diagnostic aid - opt-in via NES_TRACE_HUDCLEAR_FOLLOWUP,
@@ -255,7 +256,7 @@ namespace NES
             // hundred real opcodes (whichever PRG bank is actually mapped
             // in at that exact moment) can be read off directly, instead of
             // a separate memory dump that risks reading a since-swapped bank.
-            if (std::getenv("NES_TRACE_HUDCLEAR_FOLLOWUP") && PPUPCADDR == 0x2380 && value == 0)
+            if (NES_GETENV("NES_TRACE_HUDCLEAR_FOLLOWUP") && PPUPCADDR == 0x2380 && value == 0)
                 NES_PPU_Register::hudClearFollowupTraceRemaining = 400;
             NES_PPU_Memory::Memory[PPUPCADDR]->Value(value);
             PPUPCADDR = static_cast<uint16_t>((PPUPCADDR + (PPUCTRL.I() ? 32 : 1)) & 0x3FFF);
@@ -323,7 +324,7 @@ namespace NES
             // bit7=V) and scanline, to see whether/when Tiny Toon
             // Adventures polls for sprite-0-hit as part of its status-bar
             // draw sequence.
-            if (std::getenv("NES_TRACE_2002POLL"))
+            if (NES_GETENV("NES_TRACE_2002POLL"))
                 std::cerr << "[2002poll] value=0x" << std::hex << static_cast<int>(PPUSTATUS.adress->value())
                            << std::dec << " scanline=" << NES_PPU::CurrentScanline()
                            << " PC=0x" << std::hex << NES_Register::PC << std::dec << std::endl;
