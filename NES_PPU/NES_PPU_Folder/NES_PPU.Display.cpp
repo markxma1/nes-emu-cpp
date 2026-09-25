@@ -213,7 +213,12 @@ namespace NES
     {
         NES_PROFILE_SCOPE("ppu_display");
         Draw(true);
-        Picture frame(TempDisplay.Width(), TempDisplay.Height());
+        // Reused every frame instead of allocating a new 256x240 picture (only the CPU thread calls this).
+        static Picture frame(TempDisplay.Width(), TempDisplay.Height());
+        if (frame.Width() != TempDisplay.Width() || frame.Height() != TempDisplay.Height())
+            frame = Picture(TempDisplay.Width(), TempDisplay.Height());
+        else
+            frame.Clear();
 
         // UPDATE (later in the same overall effort - see
         // RenderBackgroundScanline()'s/RenderSpriteScanline()'s own
@@ -388,9 +393,9 @@ namespace NES
             // sprite buffers (see RenderSpriteScanline()).
             if (scanline == 0)
             {
-                backgroundBuffer = Picture(256, 240);
-                spriteBehindBuffer = Picture(256, 240);
-                spriteFrontBuffer = Picture(256, 240);
+                backgroundBuffer.Clear();
+                spriteBehindBuffer.Clear();
+                spriteFrontBuffer.Clear();
                 ClearFreshTileCaches();
             }
 
@@ -514,6 +519,40 @@ namespace NES
     // across the relevant nametable/attribute cells) - correctness first;
     // revisit only if this measurably matters (Tile()'s own cache already
     // makes the pattern-table half of this cheap either way).
+    // Same picture as building the 512-pixel logical row and copying the visible 256 pixels out of it:
+    // screen pixel x shows logical pixel (xScroll + x) mod 512, whose tile is in the left nametable
+    // (columns 0-31) or the right one (32-63). Only the ~33 tiles that are visible are looked up,
+    // and pixels are written straight into the background buffer (fully transparent ones change
+    // nothing, opaque ones replace, anything else uses the generic blend).
+    void NES_PPU::RenderBackgroundRowFast(int screenY, int localTileRow, int nrLeft, int nrRight, int pixelRowWithinTile)
+    {
+        const int firstCol = xScroll >> 3;
+        const int lastCol = (xScroll + 255) >> 3;
+        for (int c = firstCol; c <= lastCol; c++)
+        {
+            const int srcCol = c & 63;
+            const int nt = srcCol < 32 ? nrLeft : nrRight;
+            const int col = srcCol & 31;
+            const size_t k = static_cast<size_t>(localTileRow) * 32 + static_cast<size_t>(col);
+            const uint16_t tile = static_cast<uint16_t>(NES_PPU_Memory::NameTableN[static_cast<size_t>(nt)][k]->Value());
+            const Picture& img = BackgroundTileRef(tile, NES_PPU_AttributeTable::PaletteForTile(nt, localTileRow, col));
+            const int screenX0 = c * 8 - xScroll;
+            for (int px = 0; px < 8; px++)
+            {
+                const int x = screenX0 + px;
+                if (x < 0 || x >= 256)
+                    continue;
+                const Color pixel = img.GetPixel(px, pixelRowWithinTile);
+                if (pixel.A == 0)
+                    continue;
+                if (pixel.A == 255)
+                    backgroundBuffer.SetPixel(pixel, x, screenY);
+                else
+                    backgroundBuffer.DrawPixel(pixel, x, screenY);
+            }
+        }
+    }
+
     void NES_PPU::RenderBackgroundScanline(int screenY)
     {
         // FIXED (real bug, found while investigating a reported Bram
@@ -566,6 +605,12 @@ namespace NES
 
         rowChrSnapshot[static_cast<size_t>(nrLeft)][static_cast<size_t>(localTileRow)] = currentChrSnapshot;
         rowChrSnapshot[static_cast<size_t>(nrRight)][static_cast<size_t>(localTileRow)] = currentChrSnapshot;
+
+        if (xScroll >= 0 && xScroll < 512 && !NES_GETENV("NES_TRACE_TILE0_COLOR"))
+        {
+            RenderBackgroundRowFast(screenY, localTileRow, nrLeft, nrRight, pixelRowWithinTile);
+            return;
+        }
 
         Picture logicalRow(64 * 8, 8);
         const std::vector<int> attrLeft = NES_PPU_AttributeTable::AttributeTable(nrLeft);

@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace NES
@@ -153,7 +154,25 @@ namespace NES
         /// came in on.
         void WriteChrWindow(int ppuStart, size_t romByteOffset, int length) const;
 
+    public:
+        /// Forget which ROM bytes are currently mapped, so the next bank writes copy everything again
+        /// (call after anything that may have changed the mapped cells, e.g. loading a save state).
+        void InvalidateBankCache()
+        {
+            prgWindowCache.clear();
+            chrWindowCache.clear();
+        }
+
     private:
+        /// What a window currently shows: ROM offset and length. A bank write that asks for the same
+        /// thing again is skipped instead of copying kilobytes cell by cell.
+        struct WindowCache
+        {
+            size_t offset;
+            int length;
+        };
+        std::unordered_map<int, WindowCache> prgWindowCache;
+        mutable std::unordered_map<int, WindowCache> chrWindowCache;
         /// Set of CPU-address ranges WritePrgWindow() repainted during the
         /// *current* WriteRegister() dispatch - see Install()'s FIXED note.
         /// Cleared at the start of each dispatch.

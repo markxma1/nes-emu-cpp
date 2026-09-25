@@ -31,6 +31,8 @@
 #include "NES_Memory.h"
 #include "NES_PPU.h"
 #include "NES_PPU_Memory.h"
+#include "Mapper_MMC3.h"
+#include "NES_PPU_AttributeTable.h"
 #include "NES_PPU_OAM.h"
 #include "NES_PPU_Palette.h"
 #include "NES_PPU_Register.h"
@@ -142,6 +144,52 @@ namespace
         Interrupt::Check(2);
         Check(NES_Register::PC == 0x8000, "NMI: enabling NMI outside vblank raises nothing");
         NES_Memory::Memory[0x2000]->Value(0x00);
+    }
+
+    /// The per-tile shortcut must give exactly the palette the full attribute table lists for every tile
+    /// (the renderer uses the shortcut, the viewers still use the full table).
+    void TestAttributePaletteForTileMatchesFullTable()
+    {
+        for (int nt = 0; nt < 4; ++nt)
+        {
+            uint32_t seed = 12345u + static_cast<uint32_t>(nt);
+            for (auto& cell : NES_PPU_Memory::AttributeTableN[static_cast<size_t>(nt)])
+            {
+                seed = seed * 1664525u + 1013904223u;
+                cell->value(static_cast<uint8_t>(seed >> 24));
+            }
+            std::vector<int> full = NES_PPU_AttributeTable::AttributeTable(nt);
+            bool same = true;
+            for (int row = 0; row < 30 && same; ++row)
+                for (int col = 0; col < 32; ++col)
+                    if (NES_PPU_AttributeTable::PaletteForTile(nt, row, col) != full[static_cast<size_t>(row * 32 + col)])
+                    {
+                        same = false;
+                        break;
+                    }
+            Check(same, "PaletteForTile must equal AttributeTable()[row*32+col] for every tile (nametable " + std::to_string(nt) + ")");
+            for (auto& cell : NES_PPU_Memory::AttributeTableN[static_cast<size_t>(nt)])
+                cell->value(0);
+        }
+    }
+
+    /// A bank write that maps the same ROM bytes again must not copy them again, but a different bank must.
+    void TestMapperSkipsUnchangedBankWindows()
+    {
+        // Never destroyed: Install() leaves hooks in the memory cells that point back at the mapper.
+        static Mapper_MMC3& mmc3 = *new Mapper_MMC3();
+        std::vector<uint8_t> prg(8 * 8192), chr(16 * 1024);
+        for (size_t i = 0; i < prg.size(); ++i)
+            prg[i] = static_cast<uint8_t>(i / 8192 + 1); // every 8 KB bank filled with its own number
+        mmc3.Install(prg, chr);
+        NES_Memory::Memory[0x8000]->Value(6); // bank select R6 ($8000-$9FFF)
+        NES_Memory::Memory[0x8001]->Value(3); // R6 = bank 3
+        Check(NES_Memory::Memory[0x9000]->value() == 4, "MMC3: $8000 window shows PRG bank 3 after the bank write");
+        NES_Memory::Memory[0x8001]->Value(3); // same bank again
+        Check(NES_Memory::Memory[0x9000]->value() == 4, "MMC3: writing the same bank again keeps the mapped bytes");
+        Check(NES_Memory::Memory[0x8001]->value() == 4, "MMC3: the register write itself must not leave the written value in the ROM cell");
+        NES_Memory::Memory[0x8001]->Value(5);
+        Check(NES_Memory::Memory[0x9000]->value() == 6, "MMC3: a different bank is copied");
     }
 
     /// A 6502 interrupt pushes the status register as it was *before* the
@@ -1538,6 +1586,7 @@ int main()
     TestNmiIsNotBlockedByRunningHandler();
     TestNmiRestoresInterruptFlagOnRti();
     TestEnablingNmiInVblankRaisesNmi();
+    TestAttributePaletteForTileMatchesFullTable();
     TestSpritePaletteMirrorsBackdrop();
     TestBackdropColourShowsThroughTransparentBackground();
     TestLeftColumnMask();
@@ -1566,6 +1615,8 @@ int main()
     TestBranchCycleCounting();
     TestPageCrossOnlyAppliesToReadInstructions();
     TestOAMDMAStallsCPU();
+
+    TestMapperSkipsUnchangedBankWindows(); // last: it installs a mapper over the whole $8000-$FFFF area
 
     if (failures == 0)
     {

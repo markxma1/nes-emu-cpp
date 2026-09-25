@@ -130,6 +130,13 @@ namespace NES
 
     NES_PPU::Picture NES_PPU::DecodeBackgroundTileFresh(uint16_t spriteID, int pallete)
     {
+        return BackgroundTileRef(spriteID, pallete);
+    }
+
+    // Same tile as DecodeBackgroundTileFresh(), but returns a reference into the per-frame cache
+    // instead of copying it. The reference stays valid until ClearFreshTileCaches().
+    const NES_PPU::Picture& NES_PPU::BackgroundTileRef(uint16_t spriteID, int pallete)
+    {
         int key = spriteID * 4 + pallete;
         auto it = freshBackgroundTileCache.find(key);
         if (it != freshBackgroundTileCache.end())
@@ -150,8 +157,7 @@ namespace NES
                 bitmap.SetPixel(color.color[p], 7 - j, i);
             }
         }
-        freshBackgroundTileCache.emplace(key, bitmap);
-        return bitmap;
+        return freshBackgroundTileCache.emplace(key, std::move(bitmap)).first->second;
     }
 
     // New: same reasoning as DecodeBackgroundTileFresh()

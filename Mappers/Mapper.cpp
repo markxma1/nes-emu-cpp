@@ -26,6 +26,7 @@ namespace NES
     {
         prg = std::move(prgRom);
         chr = std::move(chrRom);
+        InvalidateBankCache();
         OnInstall();
 
         // Every address in $8000-$FFFF, not just specific ones - see the
@@ -96,6 +97,13 @@ namespace NES
 
     void Mapper::WritePrgWindow(int cpuStart, size_t romByteOffset, int length)
     {
+        // Unchanged window: nothing to copy. It is not recorded as "touched" either, so the cell the
+        // CPU just wrote to (a bank register) gets its ROM byte back in the write hook below.
+        size_t normalizedOffset = romByteOffset % prg.size();
+        auto cached = prgWindowCache.find(cpuStart);
+        if (cached != prgWindowCache.end() && cached->second.offset == normalizedOffset && cached->second.length == length)
+            return;
+        prgWindowCache[cpuStart] = WindowCache{normalizedOffset, length};
         prgWindowsTouchedThisWrite.emplace_back(cpuStart, cpuStart + length);
         for (int i = 0; i < length; ++i)
         {
@@ -144,6 +152,11 @@ namespace NES
     {
         if (HasChrRam())
             return;
+        size_t normalizedOffset = romByteOffset % chr.size();
+        auto cached = chrWindowCache.find(ppuStart);
+        if (cached != chrWindowCache.end() && cached->second.offset == normalizedOffset && cached->second.length == length)
+            return;
+        chrWindowCache[ppuStart] = WindowCache{normalizedOffset, length};
         for (int i = 0; i < length; ++i)
         {
             uint8_t byte = chr[(romByteOffset + static_cast<size_t>(i)) % chr.size()];

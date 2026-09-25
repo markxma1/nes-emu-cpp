@@ -1187,6 +1187,49 @@ int main(int argc, char** argv)
             }
         }
     }
+    // The frame hooks must be in place before the CPU thread starts: at high speed the first
+    // frames can pass in milliseconds, and a hook installed later would miss them.
+    // Opt-in via NES_PLAYBACK_INPUT (a recording file path, see
+    // StartRecording()'s own comment on the format). Loaded once, here, and
+    // applied from the CPU thread the instant frame N completes (see
+    // NES_CPU::frameHook), so the game sees each button change at exactly
+    // the same emulated frame on every replay, independent of UI-thread
+    // timing. While a playback file is active the UI loop does not drive
+    // Player1 at all.
+    std::map<long, std::vector<std::pair<std::string, bool>>> playbackEvents;
+    bool playbackDriven = false;
+    if (const char* playbackEnv = NES_GETENV("NES_PLAYBACK_INPUT"))
+    {
+        playbackEvents = LoadPlaybackFile(playbackEnv);
+        playbackDriven = true;
+        NES::NES_CPU::frameHook = [&playbackEvents](long long frame)
+        {
+            auto it = playbackEvents.find(static_cast<long>(frame));
+            if (it == playbackEvents.end())
+                return;
+            for (const auto& [button, down] : it->second)
+                SetButton(NES::NES_GamePad::Player1, button, down);
+        };
+    }
+
+    // NES_DUMP_FRAME_AT=<N> (with NES_DUMP_FRAME_PATH=<png>): writes the picture of
+    // emulated frame N from the CPU thread at the moment it completes, so the image
+    // is exactly frame N no matter how fast the UI loop runs (used to compare
+    // renderer changes pixel for pixel).
+    if (const char* dumpAtEnv = NES_GETENV("NES_DUMP_FRAME_AT"))
+    {
+        const long long dumpAt = std::atoll(dumpAtEnv);
+        const std::string dumpPath = NES_GETENV("NES_DUMP_FRAME_PATH") ? NES_GETENV("NES_DUMP_FRAME_PATH") : "frame.png";
+        auto previousHook = NES::NES_CPU::frameHook;
+        NES::NES_CPU::frameHook = [previousHook, dumpAt, dumpPath](long long frame)
+        {
+            if (previousHook)
+                previousHook(frame);
+            if (frame == dumpAt)
+                cv::imwrite(dumpPath, NES::NES_Console::getDisplay().Image());
+        };
+    }
+
     std::thread cpuThread([autoLoadedSave]() {
         if (autoLoadedSave)
             NES::NES_Console::Resume();
@@ -1316,47 +1359,6 @@ int main(int argc, char** argv)
     // setOAMDebugWindowVisible()'s own comment).
     if (NES_GETENV("NES_AUTO_OPEN_OAM"))
         oamWindow.toggle();
-
-    // Opt-in via NES_PLAYBACK_INPUT (a recording file path, see
-    // StartRecording()'s own comment on the format). Loaded once, here, and
-    // applied from the CPU thread the instant frame N completes (see
-    // NES_CPU::frameHook), so the game sees each button change at exactly
-    // the same emulated frame on every replay, independent of UI-thread
-    // timing. While a playback file is active the UI loop does not drive
-    // Player1 at all.
-    std::map<long, std::vector<std::pair<std::string, bool>>> playbackEvents;
-    bool playbackDriven = false;
-    if (const char* playbackEnv = NES_GETENV("NES_PLAYBACK_INPUT"))
-    {
-        playbackEvents = LoadPlaybackFile(playbackEnv);
-        playbackDriven = true;
-        NES::NES_CPU::frameHook = [&playbackEvents](long long frame)
-        {
-            auto it = playbackEvents.find(static_cast<long>(frame));
-            if (it == playbackEvents.end())
-                return;
-            for (const auto& [button, down] : it->second)
-                SetButton(NES::NES_GamePad::Player1, button, down);
-        };
-    }
-
-    // NES_DUMP_FRAME_AT=<N> (with NES_DUMP_FRAME_PATH=<png>): writes the picture of
-    // emulated frame N from the CPU thread at the moment it completes, so the image
-    // is exactly frame N no matter how fast the UI loop runs (used to compare
-    // renderer changes pixel for pixel).
-    if (const char* dumpAtEnv = NES_GETENV("NES_DUMP_FRAME_AT"))
-    {
-        const long long dumpAt = std::atoll(dumpAtEnv);
-        const std::string dumpPath = NES_GETENV("NES_DUMP_FRAME_PATH") ? NES_GETENV("NES_DUMP_FRAME_PATH") : "frame.png";
-        auto previousHook = NES::NES_CPU::frameHook;
-        NES::NES_CPU::frameHook = [previousHook, dumpAt, dumpPath](long long frame)
-        {
-            if (previousHook)
-                previousHook(frame);
-            if (frame == dumpAt)
-                cv::imwrite(dumpPath, NES::NES_Console::getDisplay().Image());
-        };
-    }
 
     // FIXED (real bug, found while investigating a user-reported Bram
     // Stoker's Dracula "flickers between frames, sometimes normal

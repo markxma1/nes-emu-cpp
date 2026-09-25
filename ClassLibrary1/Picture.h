@@ -110,6 +110,10 @@ namespace NES_PPU
 
         /// Blends `bitmap` onto this picture with its top-left at (x, y), pixel by pixel via DrawPixel().
         void DrawImage(const Picture& bitmap, int x, int y);
+        /// Resets the picture to its freshly constructed state (all pixels default, no info layer, no mirror)
+        /// without reallocating, so a buffer can be reused every frame.
+        void Clear();
+
         /// Copies `bitmap` onto this picture with its top-left at (x, y), overwriting existing pixels (no blending).
         void DrawNewImage(const Picture& bitmap, int x, int y);
         /// Turns on mirrored reads: pixels at or beyond (x, y) read back from the image shifted by (x, y).

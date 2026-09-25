@@ -30,6 +30,7 @@
 #include "NES_GamePad.h"
 #include "Profiler.h"
 
+#include <opencv2/imgcodecs.hpp>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -109,9 +110,11 @@ int main(int argc, char** argv)
     };
 
     auto start = std::chrono::steady_clock::now();
-    NES::NES_Console::Resume(); // returns when POWER goes false
+    NES::NES_Console::Run(); // reset + run; returns when POWER goes false
     double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     long long done = NES::NES_CPU::completedFrames.load();
+    if (const char* dump = std::getenv("NES_BENCH_DUMP")) // picture of the last frame, to check what was measured
+        cv::imwrite(dump, NES::NES_Console::getDisplay().Image());
     std::cout << done << " frames in " << sec << " s = " << done / sec << " fps = " << done / sec / 60.0988
               << "x real time (" << sec / done * 1000 << " ms/frame)" << std::endl;
     return 0;

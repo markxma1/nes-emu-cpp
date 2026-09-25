@@ -305,6 +305,7 @@ namespace NES
         if (Mapper* mapper = NES_ROM::CurrentMapper())
         {
             const uint8_t* cursor = mapperStateBegin;
+            mapper->InvalidateBankCache();
             mapper->DeserializeState(cursor, mapperStateBegin + mapperStateLen);
         }
 

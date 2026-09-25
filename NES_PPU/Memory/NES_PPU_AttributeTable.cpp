@@ -19,6 +19,13 @@
 
 namespace NES
 {
+    int NES_PPU_AttributeTable::PaletteForTile(int NR, int row, int col)
+    {
+        // One attribute byte covers 4x4 tiles: two bits per 2x2 block (top-left, top-right, bottom-left, bottom-right).
+        int shift = ((row & 2) ? 2 : 0) + ((col & 2) ? 1 : 0);
+        return SplitAttribute(shift, getTable(NR)[static_cast<size_t>(col >> 2) + static_cast<size_t>(row >> 2) * 8]->value());
+    }
+
     std::vector<int> NES_PPU_AttributeTable::AttributeTable(int NR)
     {
         return CreateAL(getTable(NR));

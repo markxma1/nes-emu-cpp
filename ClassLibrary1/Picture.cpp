@@ -120,9 +120,24 @@ namespace NES_PPU
 
     void Picture::FillRectangle(Color color, int x, int y, int width_, int height_)
     {
-        for (int i = x; i < width_; i++)
-            for (int j = y; j < height_; j++)
-                SetPixel(color, i, j);
+        // Columns x .. width_-1, rows y .. height_-1 (the last two arguments are the right/bottom
+        // edge, not a size), clipped to the picture; one std::fill per row.
+        int x0 = std::max(0, x), x1 = std::min(width, width_);
+        int y0 = std::max(0, y), y1 = std::min(height, height_);
+        if (x1 <= x0)
+            return;
+        for (int j = y0; j < y1; j++)
+            std::fill(img.begin() + static_cast<std::ptrdiff_t>(x0) + static_cast<std::ptrdiff_t>(j) * width,
+                      img.begin() + static_cast<std::ptrdiff_t>(x1) + static_cast<std::ptrdiff_t>(j) * width, color);
+    }
+
+    void Picture::Clear()
+    {
+        std::fill(img.begin(), img.end(), Color());
+        infoLayer.clear();
+        infoUsed = false;
+        haveMirror = false;
+        mirror = Mirror();
     }
 
     // Same result as the per-pixel loop below (DrawPixel = blend of source over destination),

@@ -31,6 +31,9 @@ namespace NES
         /// @return one decoded 2-bit palette index per tile position, laid out
         /// in the same order as NES_PPU_Memory::NameTableN[NR].
         static std::vector<int> AttributeTable(int NR);
+        /// Palette (0-3) of one tile: the same value as `AttributeTable(NR)[row * 32 + col]`, computed
+        /// directly from the attribute byte instead of building the whole 1024-entry table.
+        static int PaletteForTile(int NR, int row, int col);
 
     private:
         static std::vector<int> CreateAL(const AddrVec& attributeTable);

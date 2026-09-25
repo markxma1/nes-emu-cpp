@@ -396,6 +396,10 @@ namespace NES
         static bool splitPrevRendered;
         static int splitStartLine;   // first scanline drawn from splitV
         static void ApplySplitScroll(int scanline);
+        /// Cached background tile, by reference (valid until the next ClearFreshTileCaches()).
+        static const Picture& BackgroundTileRef(uint16_t tileID, int palette);
+        /// Draws one background scanline straight from the tile rows (scroll 0..511 only).
+        static void RenderBackgroundRowFast(int screenY, int localTileRow, int nrLeft, int nrRight, int pixelRowWithinTile);
 
         // --- CHR state per nametable row (for the nametable viewer) ---
         // Mappers such as MMC3 switch CHR banks in the middle of a frame, so
