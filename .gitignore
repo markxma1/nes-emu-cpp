@@ -31,3 +31,7 @@ trace.log
 # keeps working for anyone who clones this repo.
 *.nes
 !tests/nestest/nestest.nes
+docs/
+!tests/roms/*.nes
+__pycache__/
+*.pyc

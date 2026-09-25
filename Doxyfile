@@ -1,0 +1,21 @@
+# Doxygen configuration for nes-emu-cpp. Run `doxygen Doxyfile` in the repository root;
+# the HTML documentation ends up in docs/html/index.html.
+PROJECT_NAME           = "nes-emu-cpp"
+PROJECT_BRIEF          = "A NES emulator written to understand how emulators work"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = README.md CPU INES Mappers NES NES.Console NES.Controller NES.Memory NES_APU NES_Audio NES_PPU ClassLibrary1 tests/roms/README.md
+FILE_PATTERNS          = *.h *.cpp *.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */build*/* */docs/*
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+SOURCE_BROWSER         = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
