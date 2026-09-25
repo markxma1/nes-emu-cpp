@@ -159,6 +159,18 @@ if __name__ == '__main__':
     ap.add_argument('--a-min', type=int, default=-2**63, help='only events with info a >= this (e.g. scanline)')
     ap.add_argument('--a-max', type=int, default=2**63 - 1)
     a = ap.parse_args()
+    if not os.path.exists(a.trace):
+        # Most common mistake: the trace was recorded in another folder than the one you are in now.
+        here = os.getcwd()
+        root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+        name = os.path.basename(a.trace)
+        found = [os.path.join(d, name) for d in {here, root, os.path.join(root, 'build')} if os.path.exists(os.path.join(d, name))]
+        print(f'File not found: {os.path.abspath(a.trace)}\n'
+              f'The trace is written where you STARTED the emulator (not into build/). Record it first:\n'
+              f'    NES_PROFILE={name} ./build/nes-bench path/to/game.nes 1500     # run in the project folder')
+        if found:
+            print('A file with that name exists here - use its full path:\n    ' + '\n    '.join(found))
+        sys.exit(1)
     th, ev, sm = load(a.trace)
     if not ev:
         sys.exit('no events in trace')
