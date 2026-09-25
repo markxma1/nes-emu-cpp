@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_PPU.h"
+#include "Profiler.h"
 #include <mutex>
 #include "NES_PPU_Register.h"
 #include "NES_PPU_Palette.h"
@@ -209,6 +210,7 @@ namespace NES
 
     NES_PPU::Picture NES_PPU::Display()
     {
+        NES_PROFILE_SCOPE("ppu_display");
         Draw(true);
         Picture frame(TempDisplay.Width(), TempDisplay.Height());
 
@@ -410,8 +412,14 @@ namespace NES
             // in effect by the time this scanline's own row is decoded.
             ApplySplitScroll(scanline);
             TakeChrSnapshotIfNeeded(scanline);
-            RenderBackgroundScanline(scanline);
-            RenderSpriteScanline(scanline);
+            {
+                NES_PROFILE_SCOPE("render_background_scanline", scanline);
+                RenderBackgroundScanline(scanline);
+            }
+            {
+                NES_PROFILE_SCOPE("render_sprite_scanline", scanline);
+                RenderSpriteScanline(scanline);
+            }
             ClipLeftColumn(scanline);
         }
         else if (scanline == 241)

@@ -26,6 +26,7 @@
 #include "NES_Console.h"
 #include "Math.h"
 #include "Parameter.h"
+#include "Profiler.h"
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -599,12 +600,29 @@ namespace NES
         // rate, updated a few times a second from its own rolling window.
         auto fpsWindowStart = Clock::now();
         int framesInFpsWindow = 0;
+        Profiler::NameThread("cpu");
+        uint64_t profileFrameStartNs = Profiler::enabled ? Profiler::NowNs() : 0;
 
         while (Interrupt::POWER)
         {
-            int cycles = Step();
-            if (NES_PPU::AdvanceDots(cycles))
+            int cycles;
             {
+                NES_PROFILE_HOT("cpu_step");
+                cycles = Step();
+            }
+            bool frameDone;
+            {
+                NES_PROFILE_HOT("ppu_advance_dots");
+                frameDone = NES_PPU::AdvanceDots(cycles);
+            }
+            if (frameDone)
+            {
+                if (Profiler::enabled)
+                {
+                    uint64_t now = Profiler::NowNs();
+                    Profiler::Record("frame", profileFrameStartNs, now, completedFrames.load(std::memory_order_relaxed) + 1);
+                    profileFrameStartNs = now;
+                }
                 NES_Console::RenderFrame();
                 completedFrames.fetch_add(1, std::memory_order_relaxed);
                 if (frameHook)
@@ -656,6 +674,7 @@ namespace NES
 
             if (elapsedNs < targetNs)
             {
+                NES_PROFILE_SCOPE("throttle_wait");
                 while (elapsedNs < targetNs)
                     elapsedNs = std::chrono::duration<double, std::nano>(Clock::now() - baseTime).count();
             }

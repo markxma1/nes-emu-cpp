@@ -78,6 +78,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
+#include "Profiler.h"
 
 namespace
 {
@@ -893,6 +894,8 @@ namespace
 
 int main(int argc, char** argv)
 {
+    NES::Profiler::InitFromEnvironment();
+    NES::Profiler::NameThread("ui");
     // FIXED (real performance regression, found live via a direct report:
     // "CPU only at 16%, but everything feels slow" on a 32-core machine):
     // OpenCV defaults to spreading its own parallel_for_-based operations
@@ -1336,6 +1339,24 @@ int main(int argc, char** argv)
         };
     }
 
+    // NES_DUMP_FRAME_AT=<N> (with NES_DUMP_FRAME_PATH=<png>): writes the picture of
+    // emulated frame N from the CPU thread at the moment it completes, so the image
+    // is exactly frame N no matter how fast the UI loop runs (used to compare
+    // renderer changes pixel for pixel).
+    if (const char* dumpAtEnv = std::getenv("NES_DUMP_FRAME_AT"))
+    {
+        const long long dumpAt = std::atoll(dumpAtEnv);
+        const std::string dumpPath = std::getenv("NES_DUMP_FRAME_PATH") ? std::getenv("NES_DUMP_FRAME_PATH") : "frame.png";
+        auto previousHook = NES::NES_CPU::frameHook;
+        NES::NES_CPU::frameHook = [previousHook, dumpAt, dumpPath](long long frame)
+        {
+            if (previousHook)
+                previousHook(frame);
+            if (frame == dumpAt)
+                cv::imwrite(dumpPath, NES::NES_Console::getDisplay().Image());
+        };
+    }
+
     // FIXED (real bug, found while investigating a user-reported Bram
     // Stoker's Dracula "flickers between frames, sometimes normal
     // sometimes text" symptom - see NES_CPU::completedFrames' own comment
@@ -1365,6 +1386,7 @@ int main(int argc, char** argv)
     bool running = true;
     while (running)
     {
+        NES_PROFILE_SCOPE("ui_iteration", NES::NES_CPU::completedFrames.load(std::memory_order_relaxed));
         uiFrame = NES::NES_CPU::completedFrames.load(std::memory_order_relaxed);
         lastAppliedPlaybackFrame = uiFrame;
         if (std::getenv("NES_TRACE_PC") && uiFrame % 30 == 0)
@@ -1674,9 +1696,15 @@ int main(int argc, char** argv)
             else if (!romSelector.pendingLoad.empty())
                 switchRom(romSelector.pendingLoad);
         }
-        cv::imshow(windowName, scaled);
+        {
+            NES_PROFILE_SCOPE("ui_imshow");
+            cv::imshow(windowName, scaled);
+        }
 
-        UpdateDebugWindows();
+        {
+            NES_PROFILE_SCOPE("ui_debug_windows");
+            UpdateDebugWindows();
+        }
 
         // Drains the whole pending key-event queue each tick (not just one
         // key) so debug-window toggles / remap-menu triggers / Esc never
@@ -1691,7 +1719,11 @@ int main(int argc, char** argv)
         // N/P/O/C/V/L/M/Esc debug hotkeys).
         bool focused = WindowHasFocus();
 
-        int rawKey = cv::waitKeyEx(16);
+        int rawKey;
+        {
+            NES_PROFILE_SCOPE("ui_waitkey");
+            rawKey = cv::waitKeyEx(16);
+        }
         bool sawEsc = false;
         int keysProcessedThisTick = 0;
         constexpr int kMaxKeysPerTick = 16; // safety cap, not a real limit

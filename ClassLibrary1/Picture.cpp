@@ -21,8 +21,7 @@ namespace NES_PPU
 {
     Picture::Picture(int width, int height)
         : width(width), height(height),
-          img(static_cast<size_t>(width) * static_cast<size_t>(height)),
-          infoLayer(static_cast<size_t>(width) * static_cast<size_t>(height))
+          img(static_cast<size_t>(width) * static_cast<size_t>(height))
     {
     }
 
@@ -41,7 +40,7 @@ namespace NES_PPU
     // "no mirror" state regardless of the source's.
     Picture::Picture(const Picture& other)
         : width(other.width), height(other.height),
-          img(other.img), infoLayer(other.infoLayer),
+          img(other.img), infoLayer(other.infoLayer), infoUsed(other.infoUsed),
           mirror(other.mirror), haveMirror(other.haveMirror)
     {
     }
@@ -84,7 +83,13 @@ namespace NES_PPU
     void Picture::SetInfLayerPixel(Color color, int x, int y)
     {
         if (x >= 0 && y >= 0 && x < width && y < height)
+        {
+            if (infoLayer.empty())
+                infoLayer.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
             at(infoLayer, x, y) = color;
+            if (color != Color())
+                infoUsed = true;
+        }
     }
 
     void Picture::SetPixel(Color color, int x, int y)
@@ -120,8 +125,35 @@ namespace NES_PPU
                 SetPixel(color, i, j);
     }
 
+    // Same result as the per-pixel loop below (DrawPixel = blend of source over destination),
+    // but with the bounds/info-layer/mirror checks done once. Opaque pixels replace, fully
+    // transparent ones change nothing; anything in between takes the generic blend.
+    // Used only when neither picture has info-layer values or a mirror ("plain").
+    void Picture::BlendPlain(const Picture& bitmap, int x, int y)
+    {
+        int x0 = std::max(0, x), y0 = std::max(0, y);
+        int x1 = std::min(width, x + bitmap.width), y1 = std::min(height, y + bitmap.height);
+        for (int j = y0; j < y1; j++)
+        {
+            const Color* src = &bitmap.img[static_cast<size_t>(x0 - x) + static_cast<size_t>(j - y) * bitmap.width];
+            Color* dst = &img[static_cast<size_t>(x0) + static_cast<size_t>(j) * width];
+            for (int i = x0; i < x1; i++, src++, dst++)
+            {
+                if (src->A == 255)
+                    *dst = *src;
+                else if (src->A != 0)
+                    *dst = add(*dst, *src);
+            }
+        }
+    }
+
     void Picture::DrawImage(const Picture& bitmap, int x, int y)
     {
+        if (plain() && bitmap.plain())
+        {
+            BlendPlain(bitmap, x, y);
+            return;
+        }
         for (int i = x; i < x + bitmap.width; i++)
             for (int j = y; j < y + bitmap.height; j++)
                 DrawPixel(bitmap.GetPixel(i - x, j - y), i, j);
@@ -129,6 +161,15 @@ namespace NES_PPU
 
     void Picture::DrawNewImage(const Picture& bitmap, int x, int y)
     {
+        if (plain() && bitmap.plain())
+        {
+            int x0 = std::max(0, x), y0 = std::max(0, y);
+            int x1 = std::min(width, x + bitmap.width), y1 = std::min(height, y + bitmap.height);
+            for (int j = y0; j < y1; j++)
+                std::copy_n(&bitmap.img[static_cast<size_t>(x0 - x) + static_cast<size_t>(j - y) * bitmap.width],
+                            std::max(0, x1 - x0), &img[static_cast<size_t>(x0) + static_cast<size_t>(j) * width]);
+            return;
+        }
         for (int i = x; i < x + bitmap.width; i++)
             for (int j = y; j < y + bitmap.height; j++)
                 SetPixel(bitmap.GetPixel(i - x, j - y), i, j);

@@ -135,17 +135,21 @@ namespace NES_PPU
         int width;
         int height;
         std::vector<Color> img;       // row-major [x + y*width]
-        std::vector<Color> infoLayer; // same layout; Color() (all-zero) = unset
+        std::vector<Color> infoLayer; // same layout; Color() (all-zero) = unset; empty until the first SetInfLayerPixel()
+        bool infoUsed = false;        // true once a non-default info pixel was stored
         Mirror mirror;
         bool haveMirror = false;
 
         Color& at(std::vector<Color>& plane, int x, int y) { return plane[static_cast<size_t>(x) + static_cast<size_t>(y) * width]; }
         const Color& at(const std::vector<Color>& plane, int x, int y) const { return plane[static_cast<size_t>(x) + static_cast<size_t>(y) * width]; }
-        Color getInfLayerPixel(int x, int y) const { return at(infoLayer, x, y); }
+        Color getInfLayerPixel(int x, int y) const { return infoLayer.empty() ? Color() : at(infoLayer, x, y); }
+        /// True when reads/writes are plain array accesses: no info layer values and no mirror.
+        bool plain() const { return !infoUsed && !haveMirror; }
 
         const std::vector<Color>& getMatrix() const { return img; }
         static std::vector<Color> ResizeArray(const std::vector<Color>& original, int origW, int origH, int rows, int cols);
 
+        void BlendPlain(const Picture& bitmap, int x, int y);
         static Color add(Color c1, Color c2);
         static uint8_t AvarageColor(Color c1, Color c2, char channel);
         static int Range(int value);

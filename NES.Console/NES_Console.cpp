@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "NES_Console.h"
+#include "Profiler.h"
 #include "NES_Memory.h"
 #include "NES_Register.h"
 #include "NES_CPU.h"
@@ -242,6 +243,7 @@ namespace NES
     // NES_ROM/Mapper, just no longer bridged from this exact call site.
     void NES_Console::RenderFrame()
     {
+        NES_PROFILE_SCOPE("render_frame");
         NES_PPU::Picture frame = NES_PPU::Display();
 
         // See getNameTabeleDebugOverlay()/setNameTableDebugWindowVisible()'s
@@ -255,7 +257,10 @@ namespace NES
         bool wantsNameTableDebug = nameTableDebugWindowVisible.load(std::memory_order_relaxed);
         NES_PPU::Picture nameTableDebug(64 * 8, 60 * 8);
         if (wantsNameTableDebug)
+        {
+            NES_PROFILE_SCOPE("debug_nametable_overlay");
             nameTableDebug = NES_PPU::NameTabeleDebugOverlay();
+        }
 
         // See setOAMDebugWindowVisible()/getOAMDebugOverlay()'s own
         // comments - same "only pay for it while the window is open, always
@@ -264,7 +269,10 @@ namespace NES
         bool wantsOAMDebug = oamDebugWindowVisible.load(std::memory_order_relaxed);
         NES_PPU::Picture oamDebug(256, 280);
         if (wantsOAMDebug)
+        {
+            NES_PROFILE_SCOPE("debug_oam_overlay");
             oamDebug = NES_PPU::OAMDebugOverlay();
+        }
 
         std::lock_guard<std::mutex> lock(frameMutex);
         latestFrame = frame;

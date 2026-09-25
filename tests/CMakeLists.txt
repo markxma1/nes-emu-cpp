@@ -17,6 +17,7 @@ set(NES_TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/ClassLibrary1
     ${CMAKE_SOURCE_DIR}/NES_APU
     ${CMAKE_SOURCE_DIR}/Mappers
+    ${CMAKE_SOURCE_DIR}/Profiler
     ${CMAKE_SOURCE_DIR}/NES
 )
 
