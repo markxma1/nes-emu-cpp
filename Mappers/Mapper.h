@@ -55,7 +55,7 @@ namespace NES
     class Mapper
     {
     public:
-        virtual ~Mapper() = default;
+        virtual ~Mapper();
 
         /// Takes ownership of the ROM's raw PRG-ROM/CHR-ROM bytes, applies
         /// this mapper's power-on-default bank configuration, and installs
@@ -173,6 +173,13 @@ namespace NES
         };
         std::unordered_map<int, WindowCache> prgWindowCache;
         mutable std::unordered_map<int, WindowCache> chrWindowCache;
+        /// Pointer to the current 1 KB piece of PRG / CHR ROM for every 1 KB of CPU / PPU address space.
+        /// The mapped memory cells read through these (see AddressSetup::MapRom()).
+        const uint8_t* prgSlots[64] = {};
+        mutable const uint8_t* chrSlots[8] = {};
+        bool prgMapped[64] = {};
+        mutable bool chrMapped[8] = {};
+        void UnmapAllRom();
         /// Set of CPU-address ranges WritePrgWindow() repainted during the
         /// *current* WriteRegister() dispatch - see Install()'s FIXED note.
         /// Cleared at the start of each dispatch.

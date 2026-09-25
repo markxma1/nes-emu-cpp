@@ -46,10 +46,27 @@ namespace NES
         /// Creates a cell with an initial value for the given address `id`.
         AddressSetup(uint8_t value, int id);
 
-        /// Pure value without additional functions.
-        uint8_t value() const { return valueCore; }
-        /// Sets the raw value without running any hooks.
-        void value(uint8_t v) { valueCore = v; }
+        /// Pure value without additional functions. For a cell mapped to ROM (see MapRom()) this is the ROM byte.
+        uint8_t value() const { return romSlot ? (*romSlot)[romIndex] : valueCore; }
+        /// Sets the raw value without running any hooks. Ignored for a cell mapped to ROM (ROM cannot be written).
+        void value(uint8_t v)
+        {
+            if (!romSlot)
+                valueCore = v;
+        }
+
+        /// Makes this cell read-only and reads its byte from `(*slot)[index]`. A mapper points `slot` at the
+        /// current 1 KB piece of ROM, so switching a bank only changes the slot pointer instead of copying
+        /// every byte of the window into every cell.
+        void MapRom(const uint8_t* const* slot, uint16_t index)
+        {
+            romSlot = slot;
+            romIndex = index;
+        }
+        /// Turns the cell back into an ordinary read/write cell.
+        void UnmapRom() { romSlot = nullptr; }
+        /// True while the cell reads from ROM.
+        bool IsMappedRom() const { return romSlot != nullptr; }
 
         /// Value with additional get/set hook functions.
         uint8_t Value() const override;
@@ -105,6 +122,8 @@ namespace NES
 
         int id = 0;
         std::unique_ptr<HookSet> hooks;
+        const uint8_t* const* romSlot = nullptr;
+        uint16_t romIndex = 0;
         uint8_t oldValue = 0;
         uint8_t valueCore = 0;
     };

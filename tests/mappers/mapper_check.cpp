@@ -315,6 +315,10 @@ namespace
     void TestMmc1BurstSuppressesNmiDelivery()
     {
         auto prg = Ramp(8 * 16384);
+        // PRG ROM cannot be written, so the NMI vector ($FFFA/$FFFB, in the fixed last bank) is part of the ROM image.
+        constexpr uint16_t kHandlerAddress = 0x0300;
+        prg[prg.size() - 6] = static_cast<uint8_t>(kHandlerAddress);
+        prg[prg.size() - 5] = static_cast<uint8_t>(kHandlerAddress >> 8);
         auto mapper = CreateMapper(1);
         mapper->Install(prg, {});
 
@@ -332,10 +336,7 @@ namespace
         constexpr uint16_t kHandler = 0x0300;
         NES_Memory::Memory[kHandler]->value(0xEA); // NOP
         NES_Memory::Memory[kHandler + 1]->value(0x40); // RTI
-        auto SetNmiVector = [&]() {
-            NES_Memory::Memory[0xFFFA]->value(static_cast<uint8_t>(kHandler));
-            NES_Memory::Memory[0xFFFB]->value(static_cast<uint8_t>(kHandler >> 8));
-        };
+        auto SetNmiVector = [&]() {}; // the vector lives in the ROM image (see above), bank commits keep it
         SetNmiVector();
 
         NES_Register::PC = kMainLoop;

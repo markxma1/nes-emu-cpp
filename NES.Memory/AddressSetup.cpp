@@ -26,7 +26,7 @@ namespace NES
 
     AddressSetup::AddressSetup(const AddressSetup& other)
         : Address(other), id(other.id), hooks(other.hooks ? std::make_unique<HookSet>(*other.hooks) : nullptr),
-          oldValue(other.oldValue), valueCore(other.valueCore)
+          romSlot(other.romSlot), romIndex(other.romIndex), oldValue(other.oldValue), valueCore(other.valueCore)
     {
     }
 
@@ -36,6 +36,8 @@ namespace NES
         {
             id = other.id;
             hooks = other.hooks ? std::make_unique<HookSet>(*other.hooks) : nullptr;
+            romSlot = other.romSlot;
+            romIndex = other.romIndex;
             oldValue = other.oldValue;
             valueCore = other.valueCore;
         }
@@ -45,10 +47,10 @@ namespace NES
     uint8_t AddressSetup::Value() const
     {
         if (!hooks)
-            return valueCore;
+            return value();
         if (hooks->beforGet)
             hooks->beforGet();
-        uint8_t temp = valueCore;
+        uint8_t temp = value();
         if (hooks->afterGet)
             hooks->afterGet();
         return temp;
@@ -58,24 +60,24 @@ namespace NES
     {
         if (!hooks)
         {
-            valueCore = v;
+            value(v);
             return;
         }
         if (hooks->beforSet)
             hooks->beforSet();
-        valueCore = v;
+        value(v);
         if (hooks->afterSet)
             hooks->afterSet(v);
     }
 
     bool AddressSetup::isNew() const
     {
-        return !(oldValue == valueCore);
+        return !(oldValue == value());
     }
 
     void AddressSetup::setAsOld()
     {
-        oldValue = valueCore;
+        oldValue = value();
     }
 
     std::string AddressSetup::ToString() const

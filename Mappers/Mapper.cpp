@@ -26,6 +26,7 @@ namespace NES
     {
         prg = std::move(prgRom);
         chr = std::move(chrRom);
+        UnmapAllRom();
         InvalidateBankCache();
         OnInstall();
 
@@ -95,6 +96,26 @@ namespace NES
         }
     }
 
+    Mapper::~Mapper()
+    {
+        UnmapAllRom();
+    }
+
+    // Cells that read through this mapper's slot arrays must not outlive it.
+    void Mapper::UnmapAllRom()
+    {
+        for (int k = 0; k < 64; ++k)
+            if (prgMapped[k])
+                for (int i = 0; i < 1024; ++i)
+                    NES_Memory::Memory[static_cast<size_t>(k * 1024 + i)]->UnmapRom();
+        for (int k = 0; k < 8; ++k)
+            if (chrMapped[k])
+                for (int i = 0; i < 1024; ++i)
+                    NES_PPU_Memory::PatternTable[static_cast<size_t>(k * 1024 + i)]->UnmapRom();
+        for (bool& m : prgMapped) m = false;
+        for (bool& m : chrMapped) m = false;
+    }
+
     void Mapper::WritePrgWindow(int cpuStart, size_t romByteOffset, int length)
     {
         // Unchanged window: nothing to copy. It is not recorded as "touched" either, so the cell the
@@ -105,6 +126,22 @@ namespace NES
             return;
         prgWindowCache[cpuStart] = WindowCache{normalizedOffset, length};
         prgWindowsTouchedThisWrite.emplace_back(cpuStart, cpuStart + length);
+        if (prg.size() % 1024 == 0 && cpuStart % 1024 == 0 && length % 1024 == 0 && cpuStart >= 0 && cpuStart + length <= 0x10000)
+        {
+            // Point each 1 KB piece of the window at its ROM bytes (no copying).
+            for (int piece = 0; piece < length / 1024; ++piece)
+            {
+                int k = cpuStart / 1024 + piece;
+                prgSlots[k] = prg.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % prg.size();
+                if (!prgMapped[k])
+                {
+                    prgMapped[k] = true;
+                    for (int i = 0; i < 1024; ++i)
+                        NES_Memory::Memory[static_cast<size_t>(k * 1024 + i)]->MapRom(&prgSlots[k], static_cast<uint16_t>(i));
+                }
+            }
+            return;
+        }
         for (int i = 0; i < length; ++i)
         {
             uint8_t byte = prg[(romByteOffset + static_cast<size_t>(i)) % prg.size()];
@@ -157,6 +194,23 @@ namespace NES
         if (cached != chrWindowCache.end() && cached->second.offset == normalizedOffset && cached->second.length == length)
             return;
         chrWindowCache[ppuStart] = WindowCache{normalizedOffset, length};
+        if (chr.size() % 1024 == 0 && ppuStart % 1024 == 0 && length % 1024 == 0 && ppuStart >= 0 && ppuStart + length <= 0x2000)
+        {
+            for (int piece = 0; piece < length / 1024; ++piece)
+            {
+                int k = ppuStart / 1024 + piece;
+                chrSlots[k] = chr.data() + (normalizedOffset + static_cast<size_t>(piece) * 1024) % chr.size();
+                if (!chrMapped[k])
+                {
+                    chrMapped[k] = true;
+                    for (int i = 0; i < 1024; ++i)
+                        NES_PPU_Memory::PatternTable[static_cast<size_t>(k * 1024 + i)]->MapRom(&chrSlots[k], static_cast<uint16_t>(i));
+                }
+            }
+            NES_PPU::ClearFreshTileCaches();
+            NES_PPU::NoteChrChanged();
+            return;
+        }
         for (int i = 0; i < length; ++i)
         {
             uint8_t byte = chr[(romByteOffset + static_cast<size_t>(i)) % chr.size()];
