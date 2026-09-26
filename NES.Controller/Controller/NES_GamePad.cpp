@@ -139,7 +139,7 @@ namespace NES
             index = 0; // strobe high: the register keeps reloading, so button A is reported again and again
         // After all 8 buttons have been shifted out a standard controller returns 1 on every further read.
         // http://wiki.nesdev.com/w/index.php/Controller_reading
-        bool bit = (index > 7) ? true : pad.Button[static_cast<size_t>(index)].second;
+        bool bit = (index > 7) ? true : pad.Button[static_cast<size_t>(index)].second.load();
         if (!strobeHigh && index <= 7)
             ++index;
         return bit;

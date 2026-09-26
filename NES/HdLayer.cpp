@@ -15,6 +15,7 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "HdLayer.h"
+#include "Profiler.h"
 #include "NES_Console.h"
 #include "NES_PPU_Memory.h"
 #include "NES_PPU_OAM.h"
@@ -26,6 +27,9 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
+#include <array>
+#include <condition_variable>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -121,26 +125,35 @@ namespace NES
             return none;
         }
 
-        void FillColours(HdCell& cell, bool sprite)
+        /// Everything the layer needs from the emulator for one frame, copied on the CPU thread
+        /// (about 20 KB + the picture). The worker thread then decodes and composes from this copy alone,
+        /// with its own memory, without touching any emulator state while the game keeps running.
+        struct RawState
         {
-            NES_PPU_Color palette = sprite ? NES_PPU_Palette::getSpriteColorPalette(cell.palette)
-                                           : NES_PPU_Palette::getBGColorPalette(cell.palette);
+            long long frame = 0;
+            NES_PPU::Picture picture{256, 240};
+            bool bgOn = false, spritesOn = false, tall = false;
+            int spriteBank = 0, bgBank = 0;
+            int xScroll = 0, yScroll = 0;
+            uint8_t oam[64][4] = {};                 // Y, tile, attributes, X of each sprite
+            std::array<uint8_t, 4096> chr[2];        // both pattern tables
+            uint8_t nametable[4][960] = {};
+            uint8_t tilePalette[4][960] = {};        // attribute-table palette of every background tile
+            uint8_t spriteRgb[4][4][3] = {};         // resolved colours: [palette][index][R,G,B]
+            uint8_t bgRgb[4][4][3] = {};
+        };
+
+        void FillColours(HdCell& cell, bool sprite, const RawState& raw)
+        {
+            const uint8_t(*rgb)[3] = sprite ? raw.spriteRgb[cell.palette] : raw.bgRgb[cell.palette];
             for (int i = 0; i < 4; i++)
-            {
-                NES_PPU::Color c = palette.color[static_cast<size_t>(i)];
-                if (!sprite && i == 0)
-                    c = NES_PPU_Palette::UniversalBackgroundColor();
-                cell.rgb[i][0] = c.R;
-                cell.rgb[i][1] = c.G;
-                cell.rgb[i][2] = c.B;
-            }
+                for (int c = 0; c < 3; c++)
+                    cell.rgb[i][c] = rgb[i][c];
         }
 
-        void ReadTile(HdCell& cell, int bank, int tileIndex)
+        void ReadTile(HdCell& cell, const RawState& raw, int bank, int tileIndex)
         {
-            const auto& table = NES_PPU_Memory::PatternTableN[static_cast<size_t>(bank)];
-            for (int i = 0; i < 16; i++)
-                cell.bytes[i] = table[static_cast<size_t>(tileIndex * 16 + i)]->Value();
+            std::copy(raw.chr[bank].begin() + tileIndex * 16, raw.chr[bank].begin() + tileIndex * 16 + 16, cell.bytes);
             cell.hash = HdLayer::HashBytes(cell.bytes, 16);
         }
     }
@@ -256,99 +269,6 @@ namespace NES
         return skins.size();
     }
 
-    void HdLayer::OnFrame(long long frame)
-    {
-        if (scale_.load(std::memory_order_relaxed) == 0)
-            return;
-        static const char* captureAt = std::getenv("NES_HD_CAPTURE_FRAME"); // test/automation switch
-        if (captureAt && frame == std::atoll(captureAt))
-            RequestCapture();
-        auto snap = std::make_shared<Snapshot>();
-        snap->frame = frame;
-        snap->image = NES_Console::getDisplay().Image();
-
-        // Background cells under the current scroll (same addressing as NES_PPU::RenderBackgroundScanline).
-        if (NES_PPU_Register::PPUMASK.b())
-        {
-            const int xs = NES_PPU::xScroll, ys = NES_PPU::yScroll;
-            const int bank = NES_PPU_Register::PPUCTRL.B() ? 1 : 0;
-            std::vector<int> attributes[4];
-            for (int nt = 0; nt < 4; nt++)
-                attributes[nt] = NES_PPU_AttributeTable::AttributeTable(nt);
-            for (int row = 0; row < 31; row++)
-            {
-                const int logicalY = ((ys + row * 8) % 480 + 480) % 480;
-                const int tileRow = logicalY / 8;
-                const int localRow = tileRow < 30 ? tileRow : tileRow - 30;
-                const int ntLeft = tileRow < 30 ? 0 : 2;
-                for (int col = 0; col < 33; col++)
-                {
-                    const int logicalX = ((xs + col * 8) % 512 + 512) % 512;
-                    const int tileCol = logicalX / 8;
-                    const int nt = tileCol < 32 ? ntLeft : ntLeft + 1;
-                    const int k = localRow * 32 + tileCol % 32;
-                    HdCell cell;
-                    cell.sprite = false;
-                    cell.x = col * 8 - xs % 8;
-                    cell.y = row * 8 - ys % 8;
-                    cell.palette = static_cast<uint8_t>(attributes[nt][static_cast<size_t>(k)]);
-                    ReadTile(cell, bank, NES_PPU_Memory::NameTableN[static_cast<size_t>(nt)][static_cast<size_t>(k)]->Value());
-                    FillColours(cell, false);
-                    MeasureVisibility(cell, snap->image);
-                    if (cell.visible)
-                        snap->cells.push_back(cell);
-                }
-            }
-        }
-
-        // Sprite cells (8x8 or 8x16), same rules as NES_PPU::RenderSpriteScanline.
-        if (NES_PPU_Register::PPUMASK.s())
-        {
-            const bool tall = NES_PPU_Register::PPUCTRL.H();
-            for (size_t i = 0; i < NES_PPU_OAM::SpriteTile.size(); i++)
-            {
-                const auto& attr = NES_PPU_OAM::SpriteAttribute[i];
-                const int x = NES_PPU_OAM::SpriteXc[i]->Value();
-                const int y = NES_PPU_OAM::SpriteYc[i]->Value() + 1;
-                if (y >= 240)
-                    continue;
-                const int parts = tall ? 2 : 1;
-                for (int part = 0; part < parts; part++)
-                {
-                    HdCell cell;
-                    cell.sprite = true;
-                    cell.x = x;
-                    cell.flipH = attr.FlipH();
-                    cell.flipV = attr.FlipV();
-                    cell.palette = attr.Palette();
-                    int bank, index;
-                    if (!tall)
-                    {
-                        bank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
-                        index = NES_PPU_OAM::SpriteTile[i].adress->Value();
-                        cell.y = y;
-                    }
-                    else
-                    {
-                        bank = NES_PPU_OAM::SpriteTile[i].Bank() ? 1 : 0;
-                        const int top = NES_PPU_OAM::SpriteTile[i].Number();
-                        const bool second = (part == 1) != cell.flipV; // vertical flip swaps the two halves
-                        index = second ? top + 1 : top;
-                        cell.y = y + part * 8;
-                    }
-                    ReadTile(cell, bank, index & 0xFF);
-                    FillColours(cell, true);
-                    MeasureVisibility(cell, snap->image);
-                    if (cell.visible)
-                        snap->cells.push_back(cell);
-                }
-            }
-        }
-
-        std::lock_guard<std::mutex> l(snapshotMutex);
-        latest = std::move(snap);
-    }
-
     namespace
     {
         void WriteCapture(const Snapshot& snap)
@@ -378,32 +298,258 @@ namespace NES
             f << "\n]}\n";
             std::cout << "[skins] captured frame " << snap.frame << " -> " << (dir / stem).string() << ".json (" << snap.cells.size() << " tiles)" << std::endl;
         }
+
+        /// Worker side, no emulator state involved: list the cells of the copied frame and check them against its picture.
+        std::shared_ptr<Snapshot> BuildSnapshot(const RawState& raw)
+        {
+            NES_PROFILE_HOT("hd_cells");
+            auto snap = std::make_shared<Snapshot>();
+            snap->frame = raw.frame;
+            snap->image = raw.picture.Image();
+
+            if (raw.bgOn)
+            {
+                const int xs = raw.xScroll, ys = raw.yScroll;
+                for (int row = 0; row < 31; row++)
+                {
+                    const int logicalY = ((ys + row * 8) % 480 + 480) % 480;
+                    const int tileRow = logicalY / 8;
+                    const int localRow = tileRow < 30 ? tileRow : tileRow - 30;
+                    const int ntLeft = tileRow < 30 ? 0 : 2;
+                    for (int col = 0; col < 33; col++)
+                    {
+                        const int logicalX = ((xs + col * 8) % 512 + 512) % 512;
+                        const int tileCol = logicalX / 8;
+                        const int nt = tileCol < 32 ? ntLeft : ntLeft + 1;
+                        const int k = localRow * 32 + tileCol % 32;
+                        HdCell cell;
+                        cell.sprite = false;
+                        cell.x = col * 8 - xs % 8;
+                        cell.y = row * 8 - ys % 8;
+                        cell.palette = raw.tilePalette[nt][k];
+                        ReadTile(cell, raw, raw.bgBank, raw.nametable[nt][k]);
+                        FillColours(cell, false, raw);
+                        HdLayer::MeasureVisibility(cell, snap->image);
+                        if (cell.visible)
+                            snap->cells.push_back(cell);
+                    }
+                }
+            }
+
+            if (raw.spritesOn)
+            {
+                for (int i = 0; i < 64; i++)
+                {
+                    const uint8_t attr = raw.oam[i][2];
+                    const int x = raw.oam[i][3];
+                    const int y = raw.oam[i][0] + 1;
+                    if (y >= 240)
+                        continue;
+                    const int parts = raw.tall ? 2 : 1;
+                    for (int part = 0; part < parts; part++)
+                    {
+                        HdCell cell;
+                        cell.sprite = true;
+                        cell.x = x;
+                        cell.flipH = (attr & 0x40) != 0;
+                        cell.flipV = (attr & 0x80) != 0;
+                        cell.palette = attr & 3;
+                        int bank, index;
+                        if (!raw.tall)
+                        {
+                            bank = raw.spriteBank;
+                            index = raw.oam[i][1];
+                            cell.y = y;
+                        }
+                        else
+                        {
+                            bank = raw.oam[i][1] & 1;
+                            const int top = raw.oam[i][1] & 0xFE;
+                            const bool second = (part == 1) != cell.flipV; // vertical flip swaps the two halves
+                            index = second ? top + 1 : top;
+                            cell.y = y + part * 8;
+                        }
+                        ReadTile(cell, raw, bank, index & 0xFF);
+                        FillColours(cell, true, raw);
+                        HdLayer::MeasureVisibility(cell, snap->image);
+                        if (cell.visible)
+                            snap->cells.push_back(cell);
+                    }
+                }
+            }
+            return snap;
+        }
+
+        /// Worker side: the enlarged picture of a snapshot with all skins painted.
+        void ComposeSnapshot(const Snapshot& snap, int scale, cv::Mat& out)
+        {
+            NES_PROFILE_HOT("hd_compose");
+            cv::resize(snap.image, out, cv::Size(256 * scale, 240 * scale), 0, 0, cv::INTER_NEAREST);
+            std::lock_guard<std::mutex> l(packMutex);
+            if (skins.empty())
+                return;
+            for (const HdCell& cell : snap.cells)
+            {
+                const cv::Mat& tile = FindSkin(cell, scale, HdLayer::HashName(cell.hash));
+                if (!tile.empty())
+                    HdLayer::PaintCell(out, scale, cell, tile);
+            }
+        }
+
+        /// The worker thread: takes the newest copied frame (older ones that arrived meanwhile are dropped),
+        /// builds and composes it, and publishes the result for the UI.
+        class Worker
+        {
+        public:
+            Worker() : thread_([this] { Run(); }) {}
+            ~Worker()
+            {
+                {
+                    std::lock_guard<std::mutex> l(m_);
+                    stop_ = true;
+                }
+                cv_.notify_all();
+                thread_.join();
+            }
+            void Submit(std::unique_ptr<RawState> raw)
+            {
+                {
+                    std::lock_guard<std::mutex> l(m_);
+                    pending_ = std::move(raw);
+                }
+                cv_.notify_one();
+            }
+            bool Latest(cv::Mat& out)
+            {
+                std::lock_guard<std::mutex> l(m_);
+                if (result_.empty())
+                    return false;
+                out = result_; // shares the buffer; the worker always writes a fresh Mat
+                return true;
+            }
+
+        private:
+            void Run()
+            {
+                for (;;)
+                {
+                    std::unique_ptr<RawState> raw;
+                    {
+                        std::unique_lock<std::mutex> l(m_);
+                        cv_.wait(l, [this] { return stop_ || pending_; });
+                        if (stop_)
+                            return;
+                        raw = std::move(pending_);
+                    }
+                    const int scale = HdLayer::Scale();
+                    if (scale == 0)
+                        continue;
+                    std::shared_ptr<Snapshot> snap = BuildSnapshot(*raw);
+                    if (captureNow_.exchange(false))
+                        WriteCapture(*snap);
+                    cv::Mat out;
+                    ComposeSnapshot(*snap, scale, out);
+                    std::lock_guard<std::mutex> l(m_);
+                    result_ = std::move(out);
+                }
+            }
+            std::mutex m_;
+            std::condition_variable cv_;
+            std::unique_ptr<RawState> pending_;
+            cv::Mat result_;
+            bool stop_ = false;
+            std::thread thread_;
+        public:
+            std::atomic<bool> captureNow_{false};
+        };
+
+        Worker& TheWorker()
+        {
+            static Worker worker;
+            return worker;
+        }
+
+        std::atomic<bool> synchronous{false};
+        cv::Mat synchronousResult;
+    }
+
+    void HdLayer::SetSynchronous(bool on) { synchronous.store(on); }
+
+    void HdLayer::OnFrame(long long frame)
+    {
+        if (scale_.load(std::memory_order_relaxed) == 0)
+            return;
+        NES_PROFILE_HOT("hd_capture_state");
+        static const char* captureAt = std::getenv("NES_HD_CAPTURE_FRAME"); // test/automation switch
+        if (captureAt && frame == std::atoll(captureAt))
+            RequestCapture();
+
+        // Copy what the emulator holds for this frame; from here on the worker uses only this copy.
+        auto raw = std::make_unique<RawState>();
+        raw->frame = frame;
+        raw->picture = NES_Console::getDisplay();
+        raw->bgOn = NES_PPU_Register::PPUMASK.b();
+        raw->spritesOn = NES_PPU_Register::PPUMASK.s();
+        raw->tall = NES_PPU_Register::PPUCTRL.H();
+        raw->spriteBank = NES_PPU_Register::PPUCTRL.S() ? 1 : 0;
+        raw->bgBank = NES_PPU_Register::PPUCTRL.B() ? 1 : 0;
+        raw->xScroll = NES_PPU::xScroll;
+        raw->yScroll = NES_PPU::yScroll;
+        for (int i = 0; i < 64; i++)
+        {
+            raw->oam[i][0] = NES_PPU_OAM::SpriteYc[static_cast<size_t>(i)]->Value();
+            raw->oam[i][1] = NES_PPU_OAM::SpriteTile[static_cast<size_t>(i)].adress->Value();
+            raw->oam[i][2] = NES_PPU_OAM::SpriteAttribute[static_cast<size_t>(i)].adress->Value();
+            raw->oam[i][3] = NES_PPU_OAM::SpriteXc[static_cast<size_t>(i)]->Value();
+        }
+        for (int bank = 0; bank < 2; bank++)
+            for (size_t i = 0; i < 4096; i++)
+                raw->chr[bank][i] = NES_PPU_Memory::PatternTableN[static_cast<size_t>(bank)][i]->Value();
+        for (int nt = 0; nt < 4; nt++)
+        {
+            const std::vector<int> attributes = NES_PPU_AttributeTable::AttributeTable(nt);
+            for (size_t k = 0; k < 960; k++)
+            {
+                raw->nametable[nt][k] = NES_PPU_Memory::NameTableN[static_cast<size_t>(nt)][k]->Value();
+                raw->tilePalette[nt][k] = static_cast<uint8_t>(attributes[k]);
+            }
+        }
+        for (int pal = 0; pal < 4; pal++)
+        {
+            NES_PPU_Color sprite = NES_PPU_Palette::getSpriteColorPalette(pal);
+            NES_PPU_Color bg = NES_PPU_Palette::getBGColorPalette(pal);
+            for (int i = 0; i < 4; i++)
+            {
+                NES_PPU::Color c = sprite.color[static_cast<size_t>(i)];
+                raw->spriteRgb[pal][i][0] = c.R; raw->spriteRgb[pal][i][1] = c.G; raw->spriteRgb[pal][i][2] = c.B;
+                c = i == 0 ? NES_PPU_Palette::UniversalBackgroundColor() : bg.color[static_cast<size_t>(i)];
+                raw->bgRgb[pal][i][0] = c.R; raw->bgRgb[pal][i][1] = c.G; raw->bgRgb[pal][i][2] = c.B;
+            }
+        }
+        if (captureRequested_.exchange(false))
+            TheWorker().captureNow_ = true;
+
+        if (synchronous.load())
+        {
+            // for measuring: everything on this thread
+            auto snap = BuildSnapshot(*raw);
+            if (TheWorker().captureNow_.exchange(false))
+                WriteCapture(*snap);
+            ComposeSnapshot(*snap, scale_.load(), synchronousResult);
+            return;
+        }
+        TheWorker().Submit(std::move(raw));
     }
 
     bool HdLayer::Compose(cv::Mat& out)
     {
-        const int scale = scale_.load(std::memory_order_relaxed);
-        std::shared_ptr<const Snapshot> snap;
-        {
-            std::lock_guard<std::mutex> l(snapshotMutex);
-            snap = latest;
-        }
-        if (scale == 0 || !snap)
+        if (scale_.load(std::memory_order_relaxed) == 0)
             return false;
-
-        if (captureRequested_.exchange(false))
-            WriteCapture(*snap);
-
-        cv::resize(snap->image, out, cv::Size(256 * scale, 240 * scale), 0, 0, cv::INTER_NEAREST);
-        std::lock_guard<std::mutex> l(packMutex);
-        if (skins.empty())
-            return true;
-        for (const HdCell& cell : snap->cells)
+        if (synchronous.load())
         {
-            const cv::Mat& tile = FindSkin(cell, scale, HashName(cell.hash));
-            if (!tile.empty())
-                PaintCell(out, scale, cell, tile);
+            out = synchronousResult;
+            return !out.empty();
         }
-        return true;
+        return TheWorker().Latest(out);
     }
 }

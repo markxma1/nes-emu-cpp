@@ -103,7 +103,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)
 endif()
 
 # Headless speed test / benchmark (no window, no throttle) - see tools/nes_bench.cpp.
-add_executable(nes-bench ${NES_CORE_SOURCES} ${CMAKE_SOURCE_DIR}/tools/nes_bench.cpp)
+add_executable(nes-bench ${NES_CORE_SOURCES} ${CMAKE_SOURCE_DIR}/tools/nes_bench.cpp ${CMAKE_SOURCE_DIR}/NES/HdLayer.cpp)
 target_include_directories(nes-bench PRIVATE ${NES_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(nes-bench PRIVATE ${OpenCV_LIBS} pthread)
 add_custom_command(TARGET nes-bench POST_BUILD

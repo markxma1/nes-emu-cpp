@@ -21,6 +21,10 @@
 /// faster than a real NES (60.1 fps) the emulator ran. The optional input file uses the
 /// same "frame BUTTON 0|1" lines as `NES_PLAYBACK_INPUT`. Set `NES_BENCH_RENDER_EVERY=N` to draw only every
 /// Nth frame (0 = never), see NES_PPU::SetRenderPixels(). This is the starting point for
+/// `NES_BENCH_HD=<scale>[:sync]` also runs the skin layer (HdLayer): by default the CPU thread only copies the
+/// frame state and a worker thread does the rest (like the real emulator); `:sync` does everything on the CPU
+/// thread for comparison. `NES_BENCH_SKINS=<pack folder>` loads skins.
+/// This is the starting point for
 /// running the emulator without any UI, e.g. to let a learning agent play many times
 /// faster than real time.
 #include "INES.h"
@@ -32,6 +36,7 @@
 #include "Profiler.h"
 #include "NES_PPU.h"
 #include "NES_Memory.h"
+#include "HdLayer.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <chrono>
@@ -130,6 +135,25 @@ int main(int argc, char** argv)
             NES::Interrupt::POWER = false;
     };
 
+    // Optional skin layer, to measure what it costs and whether it can run beside the emulation.
+    std::string hdMode;
+    if (const char* hd = std::getenv("NES_BENCH_HD"))
+    {
+        std::string spec = hd;
+        const size_t colon = spec.find(':');
+        hdMode = colon == std::string::npos ? "worker thread" : spec.substr(colon + 1);
+        NES::HdLayer::SetScale(std::atoi(spec.c_str()));
+        NES::HdLayer::SetSynchronous(hdMode == "sync");
+        if (const char* skins = std::getenv("NES_BENCH_SKINS"))
+            NES::HdLayer::SetPackDir(skins);
+        auto previous = NES::NES_CPU::frameHook;
+        NES::NES_CPU::frameHook = [previous](long long frame)
+        {
+            previous(frame);
+            NES::HdLayer::OnFrame(frame);
+        };
+    }
+
     auto start = std::chrono::steady_clock::now();
     NES::NES_Console::Run(); // reset + run; returns when POWER goes false
     double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -142,6 +166,11 @@ int main(int argc, char** argv)
         for (int a = 0; a < 0x800; a++)
             h = (h ^ NES::NES_Memory::Memory[static_cast<size_t>(a)]->value()) * 1099511628211ull;
         std::cout << "ram hash " << std::hex << h << std::dec << std::endl;
+    }
+    if (!hdMode.empty())
+    {
+        cv::Mat last;
+        std::cout << "skin layer (" << hdMode << "): " << (NES::HdLayer::Compose(last) ? "picture available" : "NO picture") << std::endl;
     }
     std::cout << done << " frames in " << sec << " s = " << done / sec << " fps = " << done / sec / 60.0988
               << "x real time (" << sec / done * 1000 << " ms/frame)" << std::endl;

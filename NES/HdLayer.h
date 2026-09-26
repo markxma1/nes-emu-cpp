@@ -69,13 +69,17 @@ namespace NES
         static void SetPackDir(const std::string& dir);
         /// Reads the tile PNGs again when the folder changed (cheap check, call a few times a second).
         static void ReloadPackIfChanged();
-        /// CPU thread, after a frame was rendered: takes the snapshot of cells and frame.
+        /// CPU thread, after a frame was rendered: copies what the layer needs (about 20 KB and the picture) and
+        /// hands it to the worker thread, which decodes, verifies and composes from that copy alone.
         static void OnFrame(long long frame);
-        /// UI thread: builds the HD picture of the latest snapshot. False if there is none yet.
+        /// UI thread: the newest finished HD picture (256*scale x 240*scale, BGR). False if there is none yet.
+        /// The cv::Mat shares its buffer with the layer; treat it as read-only.
         static bool Compose(cv::Mat& out);
-        /// The next Compose() also writes `capture/cap_<frame>.json` + `.png` into the pack folder
+        /// The next processed frame also writes `capture/cap_<frame>.json` + `.png` into the pack folder
         /// (input for the skin editor).
         static void RequestCapture() { captureRequested_ = true; }
+        /// For measurements: do everything inside OnFrame() on the calling thread instead of on the worker.
+        static void SetSynchronous(bool on);
         /// Number of tile pictures currently loaded from the pack.
         static size_t SkinCount();
 

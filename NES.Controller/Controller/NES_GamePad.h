@@ -16,6 +16,7 @@
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
 #include "AddressSetup.h"
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -116,7 +117,17 @@ namespace NES
         struct Controller
         {
             /// One (name, pressed) entry per button, in the order they are read from $4016: A, B, SELECT, START, U, D, L, R.
-            std::vector<std::pair<std::string, bool>> Button;
+            /// One button: its name (`first`) and whether it is held (`second`). The state is atomic because the UI
+            /// thread (keyboard, gamepad, playback) writes it while the CPU thread reads it through $4016/$4017.
+            struct ButtonState
+            {
+                std::string first;
+                std::atomic<bool> second;
+                ButtonState(std::string name, bool pressed) : first(std::move(name)), second(pressed) {}
+                ButtonState(const ButtonState& o) : first(o.first), second(o.second.load()) {}
+                ButtonState& operator=(const ButtonState& o) { first = o.first; second.store(o.second.load()); return *this; }
+            };
+            std::vector<ButtonState> Button;
             Controller()
                 : Button{ {"A", false}, {"B", false}, {"SELECT", false}, {"START", false},
                           {"U", false}, {"D", false}, {"L", false}, {"R", false} }

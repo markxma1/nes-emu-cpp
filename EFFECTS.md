@@ -66,3 +66,49 @@ NES/HdLayer.h/.cpp                             snapshot + compositor (no core ch
 tools/nes_skin_editor.py                       the editor
 tests/skin_editor_check.py, cpu_check.cpp      tests (tile decoding, visibility, painting with flips, compose, sheets)
 ```
+
+## Speed: what costs how much, and what runs in parallel
+
+Measured with `nes-bench` (headless, no speed limit, 1500 frames, median of 3 runs, 32-core machine).
+"ms/frame" is time on the emulation thread per emulated frame (a real NES needs 16.6 ms).
+
+| Configuration | Galaga | Tiny Toon |
+|---|---|---|
+| baseline (no window, no sound samples) | 2.22 | 2.31 |
+| + sound samples generated (`NES_AUDIO_WAV=`) | 3.30 (+1.08) | 3.39 (+1.08) |
+| + skin layer 3x, everything on the emulation thread (`NES_BENCH_HD=3:sync`) | 4.11 (+1.89) | 3.88 (+1.57) |
+| + skin layer 3x, **worker thread** (`NES_BENCH_HD=3`) | 2.67 (+0.45) | 2.73 (+0.42) |
+| + skin layer 4x, worker thread | 2.68 | 2.76 |
+
+Where the time goes (profiler, per frame): building/verifying the cells 0.9 ms and composing 0.8 ms
+(both on the worker), copying the emulator state for the worker 0.1 ms (emulation thread).
+In the plain emulator (gprof) about 40% is picture composition in the PPU (`Picture::BlendPlain`,
+`GetPixel`, ...), 9% memory cell access (`AddressSetup::Value`), 8% CPU instructions, 4% APU clocking
+without sound.
+
+### The parallel design ("own RAM")
+
+`HdLayer::OnFrame()` runs on the emulation thread but only **copies** what it needs into a private
+`RawState` (OAM, both pattern tables, name tables + attribute palettes, resolved palette colours,
+scroll, PPU flags and the finished picture: about 20 KB plus the picture). A worker thread owns that copy:
+it decodes, verifies against the picture, paints the skins and publishes the finished HD picture; the UI
+just takes the newest one. Frames the worker cannot keep up with are dropped (newest wins), so the
+layer can never slow the game down beyond the copy. Because the worker uses nothing but its own memory,
+this is the pattern for any other external add-on that watches or improves the picture: it needs no
+locks on emulator state and cannot disturb timing. (TSan: no reports in our code.)
+
+What it costs the game: +0.4 ms/frame (+20% at uncapped speed; irrelevant at real time, where a frame has 16.6 ms).
+Further options: copy only what changed (CHR tables change rarely), or skip the copy when the game
+paused; cache decoded cells per hash.
+
+### Measurements that did not pay off
+
+- Skipping idle APU time by arithmetic (no sound): no measurable change (2.22 ms both ways), so it was not kept.
+- Sound samples cost +1.1 ms/frame (per-CPU-cycle mixing). They are only generated when a sound device is open,
+  so AI/headless runs do not pay for them.
+
+### Where more parallelism would help (core work, not done)
+
+The PPU's picture composition (about 40% of the time) is the largest block. It could be split off the same
+way - the emulation thread records per-scanline state, another thread turns it into pixels - but that changes
+the core and is only worth it if uncapped speed becomes the goal again.
