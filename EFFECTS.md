@@ -41,9 +41,9 @@ paint garbage - the worst case is "this tile keeps its original look in this fra
 
 ## What works now (prototype)
 
-- `H` in the emulator: skin layer off / 2x / 3x / 4x (`hd_scale` in `settings.cfg`, also in the settings program).
+- `/` in the emulator: skin layer off / 2x / 3x / 4x (`hd_scale` in `settings.cfg`, also in the settings program).
 - Skin packs live in `skins/<rom name>/tiles/`; the folder is watched, so saving in the editor changes the running game within half a second.
-- `X` captures the current picture (`skins/<rom>/capture/cap_<frame>.json + .png`) for the editor.
+- `'` (apostrophe) captures the current picture (`skins/<rom>/capture/cap_<frame>.json + .png`) for the editor.
 - Sprites (8x8 and 8x16) and background tiles are replaced by tile; transparency (alpha) is respected.
 - `tools/nes_skin_editor.py`: list of all tiles seen in the captures, pixel editor (pencil, eraser, fill, picker, undo), painting directly on the captured picture (**Frame** tab, flips and shared tiles handled), "start from original", import/export PNG, and **sheet export/import** to send all tiles through any external AI upscaler / image editor and get them back.
 
@@ -120,7 +120,7 @@ The same emulation serves three uses:
 
 | Use | Picture | Command / setting | Speed (Tiny Toon, ms per emulated frame) |
 |---|---|---|---|
-| **Play** (human, 1-3x is plenty) | window, optional skins 2-4x on the worker thread | `nes-emu`, `H` | about 2.7 (of 16.6 available) |
+| **Play** (human, 1-3x is plenty) | window, optional skins 2-4x on the worker thread | `nes-emu`, `/` | about 2.7 (of 16.6 available) |
 | **Train an AI** | none, or a small grey picture; better still the game's RAM values as observation | `nes-bench`, `NES_BENCH_RENDER_EVERY=N`, `NES_BENCH_OBS=84x84` | 2.45 full picture; 2.9 with an 84x84 grey observation of every frame; 1.55 drawing one frame in four (about 11x real time); **1.2 without drawing anything** (about 13x real time) |
 | **Publish** (YouTube, commentary) | rendered later, slowly, as beautiful as wanted | `nes-render` | about 7.6 ms/frame at 4x with skins, ~2x real time |
 

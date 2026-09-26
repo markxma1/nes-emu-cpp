@@ -2,7 +2,7 @@
 """Settings program for the NES emulator (buttons, second controller, window size, volume).
 
 Start it before a game:      python3 tools/nes_settings.py build
-or from the running emulator with the key S. The folder argument is the one that contains the
+or from the running emulator with the Tab key. The folder argument is the one that contains the
 emulator binary (there are settings.cfg, keyboard.cfg and gamepad.cfg). The emulator looks at these
 files about twice a second, so "Save" takes effect in a running game without a restart.
 

@@ -176,7 +176,7 @@ build at all.
 ## Controls and debug windows
 
 Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:
-`M`; the settings program on `S` is easier). Debug windows: `N` name table, `P` pattern table, `U` OAM viewer,
+`M`; the settings program on `Tab` is easier). Debug windows: `N` name table, `P` pattern table, `U` OAM viewer,
 `V` memory viewer, `C` CPU speed; `K` cycles which CHR bank state (as drawn,
 #0, #1, ...) the name table, pattern table and OAM viewers show.
 
@@ -198,7 +198,7 @@ that drives the emulator (tests, an AI) writes `NES_GamePad::Player2.Button[...]
 
 ```sh
 python3 tools/nes_settings.py build     # before the game (the folder contains the nes-emu binary)
-# or press S in the running emulator - it opens the same window
+# or press Tab in the running emulator - it opens the same window
 ```
 
 Needs Python with tkinter (`sudo pacman -S tk`). Tabs: **Controls** (per player, keyboard and
@@ -208,14 +208,14 @@ gamepad: *Change* next to one button, press the new key / pad button; *Clear*, *
 emulator notices the change within about half a second and applies it, no restart. *Revert* drops
 unsaved changes. All files are plain `key=value` text and safe to edit by hand.
 
-In the running emulator: `,` / `.` smaller / larger game window, `<` / `>` the debug windows, `F` full
+In the running emulator: `,` / `.` smaller / larger game window, `<` / `>` the debug windows, `\` full
 screen; the game window can also be resized by dragging its corner. The old in-emulator remap menus
 (`M` keyboard, `G` gamepad) still work.
 
 ### Skins: HD sprites and backgrounds (optional)
 
 Replaces sprites and background tiles by higher-resolution pictures at display time, without
-touching the emulated NES. Press `H` in the emulator (off / 2x / 3x / 4x), press `X` to capture the
+touching the emulated NES. Press `/` in the emulator (off / 2x / 3x / 4x), press `'` to capture the
 current picture, then edit the tiles in `python3 tools/nes_skin_editor.py build/skins/<game>`; saved
 pictures appear in the running game within half a second. How it works, its limits, the file
 format and speed measurements (the layer runs on its own thread with its own copy of the state, about +0.4 ms

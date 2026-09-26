@@ -4,7 +4,7 @@
     python3 tools/nes_skin_editor.py build/skins/Galaga
 
 How it fits together:
-  1. Run the game with the skin layer on (key H in the emulator), press X while the picture shows what
+  1. Run the game with the skin layer on (key / in the emulator), press ' while the picture shows what
      you want to edit. That writes `capture/cap_<frame>.json + .png` into the game's skin folder.
   2. Open the folder here. Every distinct 8x8 tile (sprite or background) of all captures is listed.
      Paint a tile, or paint directly on the captured picture (Frame tab): every click lands on the tile
@@ -581,7 +581,7 @@ def run_ui(pack_dir):
     def redraw_frame():
         if not captures:
             fcanvas.delete("all")
-            fcanvas.create_text(300, 200, fill="#aaa", text="No captures yet.\nRun the game, press H (skin layer on), then X to capture.")
+            fcanvas.create_text(300, 200, fill="#aaa", text="No captures yet.\nRun the game, press / (skin layer on), then ' to capture.")
             return
         cap = captures[state["capture"]]
         scale = scale_var.get()

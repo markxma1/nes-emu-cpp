@@ -980,14 +980,16 @@ namespace
                     if (src->Available() && src->SupportsRemap() && src->Name() != "Keyboard")
                         remapState.Begin(src.get());
             break;
-        case 's': case 'S': LaunchSettingsUi(); break;
-        case 'h': case 'H': CycleHd(); break;
-        case 'x': case 'X': NES::HdLayer::RequestCapture(); break;
+        // New hotkeys deliberately avoid letters: the game buttons live on letters (WASD, H, J, K by default or
+        // whatever was remapped), and a letter hotkey would fire in the middle of playing.
+        case 9: LaunchSettingsUi(); break;                    // Tab
+        case '/': CycleHd(); break;
+        case '\'': NES::HdLayer::RequestCapture(); break;
         case ',': ChangeScale(-1, 0); break;
         case '.': ChangeScale(+1, 0); break;
         case '<': ChangeScale(0, -1); break;
         case '>': ChangeScale(0, +1); break;
-        case 'f': case 'F': ToggleFullscreen(); break;
+        case '\\': ToggleFullscreen(); break;
         case 'l': case 'L':
             if (!remapState.Active() && !romSelector.Active())
                 romSelector.Open();
@@ -1476,8 +1478,8 @@ int main(int argc, char** argv)
               << std::endl;
     std::cout << "Press L to pick a different ROM (looked for next to the executable and in ./roms)."
               << std::endl;
-    std::cout << "H = skin layer (off/2x/3x/4x), X = capture the current picture for the skin editor (tools/nes_skin_editor.py)." << std::endl;
-    std::cout << "S = settings program (buttons, window size, volume), , and . = smaller/larger window, < and > = debug windows, F = full screen." << std::endl;
+    std::cout << "/ = skin layer (off/2x/3x/4x), ' = capture the current picture for the skin editor (tools/nes_skin_editor.py)." << std::endl;
+    std::cout << "Tab = settings program (buttons, window size, volume), , and . = smaller/larger window, < and > = debug windows, \\ = full screen." << std::endl;
     std::cout << "Speed: + doubles, - halves, 0 resets to real NTSC (1x)." << std::endl;
     std::cout << "Save states: 1-9 picks a slot (default 1), Q saves, E loads." << std::endl;
     std::cout << "Press Y to start/stop recording input (saved as <rom>.inputs.txt)." << std::endl;
