@@ -176,17 +176,41 @@ build at all.
 ## Controls and debug windows
 
 Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:
-`M`). Debug windows: `N` name table, `P` pattern table, `U` OAM viewer,
+`M`; the settings program on `S` is easier). Debug windows: `N` name table, `P` pattern table, `U` OAM viewer,
 `V` memory viewer, `C` CPU speed; `K` cycles which CHR bank state (as drawn,
 #0, #1, ...) the name table, pattern table and OAM viewers show.
 
 ### Second controller (optional)
 
 Controller 2 is read through `$4017` exactly like controller 1 through `$4016` (one strobe write
-latches both). With two gamepads plugged in, start the emulator with `NES_TWO_PADS=1`: the first pad
-is player 1, the second pad player 2 (without it all pads are merged into player 1, as before). Input
-files (`NES_PLAYBACK_INPUT`, recordings) address player 2 with a `P2.` prefix, e.g. `120 P2.START 1`.
-Code that drives the emulator (tests, an AI) writes `NES_GamePad::Player2.Button[...]` directly.
+latches both). Two ways to feed it, both set up in the settings program (next section):
+
+- **Keyboard:** Controls tab -> Player 2 -> click *Change* next to each button and press the key you
+  want (or *Player 2: number pad* for a quick start).
+- **Two gamepads:** tab *Second controller* -> tick *Two gamepads* (or start with `NES_TWO_PADS=1`);
+  the first pad is player 1, the second pad player 2.
+
+Whether a game uses player 2 is up to the game (usually a 2-player mode in its menu). Input files
+(`NES_PLAYBACK_INPUT`, recordings) address player 2 with a `P2.` prefix, e.g. `120 P2.START 1`; code
+that drives the emulator (tests, an AI) writes `NES_GamePad::Player2.Button[...]` directly.
+
+### Settings program (buttons, window size, volume)
+
+```sh
+python3 tools/nes_settings.py build     # before the game (the folder contains the nes-emu binary)
+# or press S in the running emulator - it opens the same window
+```
+
+Needs Python with tkinter (`sudo pacman -S tk`). Tabs: **Controls** (per player, keyboard and
+gamepad: *Change* next to one button, press the new key / pad button; *Clear*, *Reset*), **Display**
+(game window size 1-8x, debug window size 1-4x), **Sound** (volume), **Second controller**.
+*Save* writes `settings.cfg`, `keyboard.cfg` and `gamepad.cfg` next to the binary; a running
+emulator notices the change within about half a second and applies it, no restart. *Revert* drops
+unsaved changes. All files are plain `key=value` text and safe to edit by hand.
+
+In the running emulator: `,` / `.` smaller / larger game window, `<` / `>` the debug windows, `F` full
+screen; the game window can also be resized by dragging its corner. The old in-emulator remap menus
+(`M` keyboard, `G` gamepad) still work.
 
 ### Sound
 

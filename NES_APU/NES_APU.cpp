@@ -41,6 +41,7 @@ namespace NES
 
     std::atomic<bool> NES_APU::generateSamples_{false};
     std::atomic<double> NES_APU::sampleRateHz_{44100.0};
+    std::atomic<int> NES_APU::volume_{100};
     double NES_APU::cyclesPerSampleFor_ = 44100.0;
     double NES_APU::cyclesPerSample_ = NES_APU::kCpuClockHzNTSC / 44100.0;
     double NES_APU::cycleAccumulator_ = 0.0;
@@ -393,7 +394,7 @@ namespace NES
         const float rcLow = 1.0f / (2.0f * 3.14159265f * 14000.0f);
         lpPrev_ += (dt / (rcLow + dt)) * (y - lpPrev_);
 
-        int sample = static_cast<int>(std::lround(lpPrev_ * 40000.0f));
+        int sample = static_cast<int>(std::lround(lpPrev_ * 40000.0f * static_cast<float>(volume_.load(std::memory_order_relaxed)) / 100.0f));
         sample = std::clamp(sample, -32768, 32767);
         const int16_t s = static_cast<int16_t>(sample);
 

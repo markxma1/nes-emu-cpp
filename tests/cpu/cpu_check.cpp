@@ -39,6 +39,7 @@
 #include "NES_PPU_Register.h"
 #include "NES_Register.h"
 #include "NES_SaveState.h"
+#include "Settings.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1820,6 +1821,24 @@ namespace
         Check(peak > 2000 && peak < 32000, "APU stream: a full-volume pulse must be clearly audible but not clip (peak " + std::to_string(peak) + ")");
     }
 
+    /// settings.cfg: defaults without a file, values clamped, broken lines ignored, Save/Load round trip.
+    void TestSettingsFile()
+    {
+        const char* path = Settings::kFile;
+        std::remove(path);
+        Settings none = Settings::Load();
+        Check(none.scale == 3 && none.viewerScale == 1 && none.volume == 100 && !none.twoPads, "Settings: defaults without a file");
+        { std::ofstream f(path); f << "scale=99\nvolume=-5\nviewer_scale=x\ntwo_pads=1\n# comment\ngarbage\n"; }
+        Settings s = Settings::Load();
+        Check(s.scale == 8 && s.volume == 0 && s.viewerScale == 1 && s.twoPads, "Settings: values are clamped, broken lines ignored");
+        Settings w; w.scale = 5; w.viewerScale = 2; w.volume = 30; w.twoPads = true; w.Save();
+        Settings r = Settings::Load();
+        Check(r.scale == 5 && r.viewerScale == 2 && r.volume == 30 && r.twoPads, "Settings: Save/Load round trip");
+        Check(Settings::ModifiedTime(path) != 0, "Settings: file modification time is readable");
+        std::remove(path);
+        Check(Settings::ModifiedTime(path) == 0, "Settings: missing file has modification time 0");
+    }
+
 int main()
 {
     NES_Console::INIT();
@@ -1864,6 +1883,7 @@ int main()
     TestPageCrossOnlyAppliesToReadInstructions();
     TestOAMDMAStallsCPU();
 
+    TestSettingsFile();
     TestApuMixerIsNonLinear();
     TestApuPulseFrequency();
     TestApuTriangleFrequency();

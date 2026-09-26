@@ -53,6 +53,9 @@ namespace NES
         bool IsDown(const std::string& button) const override;
         /// With two or more pads and the environment variable `NES_TWO_PADS=1`, the first pad is player 1 and
         /// the second pad is player 2. Otherwise all pads are merged into player 1 and player 2 gets nothing.
+        void Reload() override { SetDefaultBindings(); LoadBindings(); }
+        /// Player 2 buttons may be bound separately as `P2.<button>`; otherwise player 1's bindings are used.
+        void SetTwoPads(bool on) { twoPads = on && devices.size() >= 2; }
         bool IsDownForPlayer(int player, const std::string& button) const override;
         bool Available() const override { return !devices.empty(); }
         std::string Name() const override;

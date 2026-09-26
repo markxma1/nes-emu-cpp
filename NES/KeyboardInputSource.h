@@ -67,6 +67,9 @@ namespace NES
 
         void Poll() override;
         bool IsDown(const std::string& button) const override;
+        /// Player 2 uses its own bindings, stored as `P2.<button>` (none by default; set them in tools/nes_settings.py).
+        bool IsDownForPlayer(int player, const std::string& button) const override;
+        void Reload() override { SetDefaultBindings(); LoadBindings(); }
         bool Available() const override { return !deviceFds.empty(); }
         std::string Name() const override { return "Keyboard"; }
 

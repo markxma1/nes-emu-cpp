@@ -55,6 +55,9 @@ namespace NES
         /// querying a dead one every frame.
         virtual bool Available() const = 0;
 
+        /// Re-reads the saved bindings (called when the settings program changed the config files).
+        virtual void Reload() {}
+
         /// Human-readable name for logging/menus ("Keyboard", "Gamepad").
         virtual std::string Name() const = 0;
 

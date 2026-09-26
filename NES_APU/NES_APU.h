@@ -80,6 +80,8 @@ namespace NES
         /// True while samples are produced.
         static bool GenerateSamples() { return generateSamples_.load(std::memory_order_relaxed); }
         /// Output sample rate in Hz (default 44100); set before sound starts.
+        /// Output volume 0-100 percent.
+        static void SetVolumePercent(int percent) { volume_.store(percent < 0 ? 0 : percent > 100 ? 100 : percent, std::memory_order_relaxed); }
         static void SetSampleRate(double hz) { sampleRateHz_.store(hz, std::memory_order_relaxed); }
 
         /// Mixes one set of channel outputs (pulse 0-15 each, triangle 0-15, noise 0-15, DMC 0-127) with the
@@ -237,6 +239,7 @@ namespace NES
         // Set by the main thread when the sound device opens, read by the CPU thread.
         static std::atomic<bool> generateSamples_;
         static std::atomic<double> sampleRateHz_;
+        static std::atomic<int> volume_;
         static double cycleAccumulator_;      // CPU cycles since the last output sample
         static double sampleSum_;             // sum of the mixer output over those cycles (box filter)
         static int sampleCount_;

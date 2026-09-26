@@ -57,6 +57,8 @@
 #include "KeyboardInputSource.h"
 #include "GamepadInputSource.h"
 #include "NES_Audio.h"
+#include "NES_APU.h"
+#include "Settings.h"
 
 #include <algorithm>
 #include <atomic>
@@ -76,6 +78,9 @@
 #include <vector>
 
 #include <climits>
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
@@ -85,7 +90,27 @@ namespace
 {
     /// Integer upscale factor for the 256x240 NES framebuffer - purely a
     /// display convenience (UI layer).
-    constexpr int kScale = 3;
+    /// Window sizes and volume from settings.cfg (see Settings.h); changed live by the settings program or hotkeys.
+    NES::Settings settings;
+    long long settingsFileTime = 0;
+    bool fullscreen = false;
+    const std::string kGameWindowName = "NES";
+
+    /// Size of the game picture in pixels for the current scale (256x240 NES pixels times scale).
+    cv::Size GameWindowSize() { return cv::Size(256 * settings.scale, 240 * settings.scale); }
+
+    /// Shows a debug-window picture enlarged by settings.viewerScale (crisp pixels).
+    void ShowViewer(const std::string& window, const cv::Mat& img)
+    {
+        if (settings.viewerScale <= 1)
+        {
+            cv::imshow(window, img);
+            return;
+        }
+        cv::Mat big;
+        cv::resize(img, big, cv::Size(), settings.viewerScale, settings.viewerScale, cv::INTER_NEAREST);
+        cv::imshow(window, big);
+    }
 
     void SetButton(NES::NES_GamePad::Controller& pad, const std::string& name, bool down)
     {
@@ -109,6 +134,89 @@ namespace
         return false;
     }
 
+    std::vector<std::unique_ptr<NES::InputSource>> inputSources;
+
+    /// Pushes the loaded settings into the parts that use them (call after Load()).
+    void ApplySettings()
+    {
+        NES::NES_APU::SetVolumePercent(settings.volume);
+        for (auto& src : inputSources)
+            if (auto* pad = dynamic_cast<NES::GamepadInputSource*>(src.get()))
+                if (settings.twoPads)
+                    pad->SetTwoPads(true);
+    }
+
+    /// Checks settings.cfg / keyboard.cfg / gamepad.cfg about twice a second; when one changed
+    /// (the settings program saved it) everything is re-read and applied while the game keeps running.
+    void ReloadSettingsIfChanged(long uiFrame)
+    {
+        if (uiFrame % 30 != 0)
+            return;
+        static long long keyboardTime = NES::Settings::ModifiedTime("./keyboard.cfg");
+        static long long gamepadTime = NES::Settings::ModifiedTime("./gamepad.cfg");
+        long long s = NES::Settings::ModifiedTime(NES::Settings::kFile);
+        long long k = NES::Settings::ModifiedTime("./keyboard.cfg");
+        long long g = NES::Settings::ModifiedTime("./gamepad.cfg");
+        if (s != settingsFileTime)
+        {
+            settingsFileTime = s;
+            int oldScale = settings.scale;
+            settings = NES::Settings::Load();
+            ApplySettings();
+            if (!fullscreen && settings.scale != oldScale)
+                cv::resizeWindow(kGameWindowName, GameWindowSize().width, GameWindowSize().height);
+        }
+        if (k != keyboardTime || g != gamepadTime)
+        {
+            keyboardTime = k;
+            gamepadTime = g;
+            for (auto& src : inputSources)
+                src->Reload();
+            ApplySettings();
+        }
+    }
+
+    /// Window-size hotkeys: ',' / '.' smaller / larger game window, '<' / '>' the same for the debug windows,
+    /// 'F' toggles full screen. The new size is also saved to settings.cfg.
+    void ChangeScale(int gameDelta, int viewerDelta)
+    {
+        settings.scale = std::clamp(settings.scale + gameDelta, 1, 8);
+        settings.viewerScale = std::clamp(settings.viewerScale + viewerDelta, 1, 4);
+        settings.Save();
+        settingsFileTime = NES::Settings::ModifiedTime(NES::Settings::kFile);
+        if (!fullscreen)
+            cv::resizeWindow(kGameWindowName, GameWindowSize().width, GameWindowSize().height);
+    }
+
+    void ToggleFullscreen()
+    {
+        fullscreen = !fullscreen;
+        cv::setWindowProperty(kGameWindowName, cv::WND_PROP_FULLSCREEN, fullscreen ? cv::WINDOW_FULLSCREEN : cv::WINDOW_NORMAL);
+        if (!fullscreen)
+            cv::resizeWindow(kGameWindowName, GameWindowSize().width, GameWindowSize().height);
+    }
+
+    /// Starts the settings program (tools/nes_settings.py) once; it edits the config files in the
+    /// current directory and the emulator picks the changes up by itself. NES_SETTINGS_UI overrides the script path.
+    void LaunchSettingsUi()
+    {
+        static pid_t child = 0;
+        if (child > 0 && waitpid(child, nullptr, WNOHANG) == 0)
+            return; // already open
+        std::string script = NES_GETENV("NES_SETTINGS_UI") ? NES_GETENV("NES_SETTINGS_UI")
+                                                            : std::string(NES_SOURCE_DIR) + "/tools/nes_settings.py";
+        char cwd[4096];
+        if (!getcwd(cwd, sizeof(cwd)))
+            return;
+        child = fork();
+        if (child == 0)
+        {
+            execlp("python3", "python3", script.c_str(), cwd, static_cast<char*>(nullptr));
+            _exit(127);
+        }
+        std::cout << "Settings program started (" << script << ")" << std::endl;
+    }
+
     /// The 8 NES buttons, in the fixed order the remap menu walks through
     /// them (matches Controller's real-hardware read order - see
     /// NES_GamePad.h - purely for a sensible prompt sequence, not a
@@ -118,7 +226,6 @@ namespace
     /// Every InputSource that's actually usable this run. Populated once in
     /// main() below; the game loop just asks each one "is X down" and ORs
     /// the answers together - see InputSource.h.
-    std::vector<std::unique_ptr<NES::InputSource>> inputSources;
 
     void PollInputSources()
     {
@@ -679,7 +786,7 @@ namespace
               << " FPS  (" << NES::NES_Console::getSpeedMultiplier() << "x, +/-/0)";
         cv::putText(canvas, label.str(), { margin, 24 }, cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
 
-        cv::imshow(cpuSpeedWindow.name, canvas);
+        ShowViewer(cpuSpeedWindow.name, canvas);
     }
 
     /// A live hex dump of NES_Memory::Memory[],
@@ -743,7 +850,7 @@ namespace
                             cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv::LINE_AA);
             }
         }
-        cv::imshow(memoryWindow.name, canvas);
+        ShowViewer(memoryWindow.name, canvas);
     }
 
     void UpdateDebugWindows()
@@ -779,7 +886,7 @@ namespace
                 cv::putText(ntImg, line, cv::Point(6, ly), cv::FONT_HERSHEY_SIMPLEX, 0.35, kBarColors[idx % 6], 1);
                 ly += 13; idx++;
             }
-            cv::imshow(nameTableWindow.name, ntImg);
+            ShowViewer(nameTableWindow.name, ntImg);
         }
         if (patternTableWindow.visible)
         {
@@ -802,7 +909,7 @@ namespace
                 }
                 cv::putText(combined, label, cv::Point(4, 12), cv::FONT_HERSHEY_SIMPLEX, 0.33, cv::Scalar(0, 255, 255), 1);
             }
-            cv::imshow(patternTableWindow.name, combined);
+            ShowViewer(patternTableWindow.name, combined);
         }
         if (cpuSpeedWindow.visible)
             DrawCpuSpeedChart();
@@ -816,7 +923,7 @@ namespace
         if (oamWindow.visible)
         {
             NES_PPU::Picture oam = NES::NES_Console::getOAMDebugOverlay();
-            cv::imshow(oamWindow.name, oam.Image());
+            ShowViewer(oamWindow.name, oam.Image());
         }
     }
 
@@ -850,6 +957,12 @@ namespace
                     if (src->Available() && src->SupportsRemap() && src->Name() != "Keyboard")
                         remapState.Begin(src.get());
             break;
+        case 's': case 'S': LaunchSettingsUi(); break;
+        case ',': ChangeScale(-1, 0); break;
+        case '.': ChangeScale(+1, 0); break;
+        case '<': ChangeScale(0, -1); break;
+        case '>': ChangeScale(0, +1); break;
+        case 'f': case 'F': ToggleFullscreen(); break;
         case 'l': case 'L':
             if (!remapState.Active() && !romSelector.Active())
                 romSelector.Open();
@@ -1298,13 +1411,18 @@ int main(int argc, char** argv)
         cpuThread = std::thread([]() { NES::NES_Console::Restart(); });
     };
 
-    const std::string windowName = "NES";
-    cv::namedWindow(windowName, cv::WINDOW_AUTOSIZE);
+    const std::string windowName = kGameWindowName;
+    // A resizable window (drag its corner, or use the hotkeys below); the picture keeps its aspect ratio.
+    settings = NES::Settings::Load();
+    settingsFileTime = NES::Settings::ModifiedTime(NES::Settings::kFile);
+    cv::namedWindow(windowName, cv::WINDOW_NORMAL | cv::WINDOW_KEEPRATIO);
+    cv::resizeWindow(windowName, GameWindowSize().width, GameWindowSize().height);
 
     NES::NES_Audio::Start(); // non-fatal if it fails - see NES_Audio.h
 
     inputSources.push_back(std::make_unique<NES::KeyboardInputSource>());
     inputSources.push_back(std::make_unique<NES::GamepadInputSource>());
+    ApplySettings();
 
     std::cout << "Controls: WASD or Arrow keys = D-Pad, K = A, J = B, Enter = START, Space = SELECT, Esc = quit"
               << std::endl;
@@ -1320,6 +1438,7 @@ int main(int argc, char** argv)
               << std::endl;
     std::cout << "Press L to pick a different ROM (looked for next to the executable and in ./roms)."
               << std::endl;
+    std::cout << "S = settings program (buttons, window size, volume), , and . = smaller/larger window, < and > = debug windows, F = full screen." << std::endl;
     std::cout << "Speed: + doubles, - halves, 0 resets to real NTSC (1x)." << std::endl;
     std::cout << "Save states: 1-9 picks a slot (default 1), Q saves, E loads." << std::endl;
     std::cout << "Press Y to start/stop recording input (saved as <rom>.inputs.txt)." << std::endl;
@@ -1709,8 +1828,9 @@ int main(int argc, char** argv)
             }
         }
 
+        ReloadSettingsIfChanged(uiFrame);
         cv::Mat scaled;
-        cv::resize(img, scaled, cv::Size(img.cols * kScale, img.rows * kScale), 0, 0, cv::INTER_NEAREST);
+        cv::resize(img, scaled, cv::Size(img.cols * settings.scale, img.rows * settings.scale), 0, 0, cv::INTER_NEAREST);
 
         PollInputSources();
 

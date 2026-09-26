@@ -149,7 +149,9 @@ namespace NES
         size_t index = player == 1 ? 0 : 1;
         if (index >= devices.size())
             return false;
-        auto it = bindings.find(button);
+        auto it = player == 2 ? bindings.find("P2." + button) : bindings.end();
+        if (it == bindings.end())
+            it = bindings.find(button);
         return it != bindings.end() && IsLabelActiveOn(index, it->second);
     }
 

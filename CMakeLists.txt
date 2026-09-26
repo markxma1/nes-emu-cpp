@@ -82,6 +82,7 @@ add_executable(nes-emu ${NES_CORE_SOURCES}
     ${CMAKE_SOURCE_DIR}/NES_Audio/NES_Audio.cpp
 )
 
+target_compile_definitions(nes-emu PRIVATE NES_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_include_directories(nes-emu PRIVATE ${NES_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS})
 target_link_libraries(nes-emu PRIVATE ${OpenCV_LIBS} ${SDL2_LIBRARIES} pthread)
 

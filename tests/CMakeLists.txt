@@ -86,6 +86,10 @@ add_custom_command(TARGET cpu_check POST_BUILD
 )
 
 add_test(NAME cpu_check COMMAND cpu_check)
+find_program(PYTHON3 python3)
+if(PYTHON3)
+    add_test(NAME settings_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/settings_check.py)
+endif()
 
 # This whole codebase leans on permanent static/global singletons
 # (NES_Memory::Memory, NES_PPU_Memory::*, ...) that are never explicitly

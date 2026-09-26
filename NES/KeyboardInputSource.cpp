@@ -191,6 +191,14 @@ namespace NES
         return false;
     }
 
+    bool KeyboardInputSource::IsDownForPlayer(int player, const std::string& button) const
+    {
+        if (player == 1)
+            return IsDown(button);
+        auto it = bindings.find("P2." + button);
+        return it != bindings.end() && IsCodeDown(LabelToCode(it->second));
+    }
+
     std::string KeyboardInputSource::PollForCapture()
     {
         for (int code = 0; code < kKeyMax; ++code)
