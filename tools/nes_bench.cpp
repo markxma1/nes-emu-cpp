@@ -59,9 +59,12 @@ namespace
             std::cerr << "warning: could not change to " << p << std::endl;
     }
 
-    void SetButton(const std::string& name, bool down)
+    /// "A" = player 1 button A, "P2.A" = player 2 button A.
+    void SetButton(const std::string& fullName, bool down)
     {
-        for (auto& b : NES::NES_GamePad::Player1.Button)
+        const bool player2 = fullName.rfind("P2.", 0) == 0;
+        const std::string name = player2 ? fullName.substr(3) : fullName;
+        for (auto& b : (player2 ? NES::NES_GamePad::Player2 : NES::NES_GamePad::Player1).Button)
             if (b.first == name)
                 b.second = down;
     }

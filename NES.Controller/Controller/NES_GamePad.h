@@ -126,7 +126,8 @@ namespace NES
 
         /// State of controller 1 (the only one wired to $4016).
         static Controller Player1;
-        /// State of controller 2 (not wired to any address yet).
+        /// State of controller 2 (read through $4017 exactly like controller 1 through $4016; the strobe
+        /// written to $4016 latches both controllers).
         static Controller Player2;
         /// State of controller 3 (not wired to any address yet).
         static Controller Player3;
@@ -146,6 +147,7 @@ namespace NES
         // NOTE: static, since the class only ever has one instance
         // (NES_Console::INIT constructs exactly one NES_GamePad).
         static int P1BID;
+        static int P2BID;
 
         // NOTE: see getButton()'s FIXED note (the
         // strobe-bit one) for why this can't just be
@@ -173,5 +175,9 @@ namespace NES
         /// $4017 (Player2) has no equivalent hook here (Player2/3/4 are not wired to any
         /// address).
         static void getButton();
+        /// Same for controller 2 at $4017 (read side only: writes to $4017 belong to the APU frame counter).
+        static void getButton2();
+        /// Shared shift-register step: returns the serial bit of `pad` at position `index` and advances it.
+        static bool ShiftOut(Controller& pad, int& index);
     };
 }

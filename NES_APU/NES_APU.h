@@ -15,8 +15,9 @@
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #pragma once
+#include <array>
+#include <atomic>
 #include <cstdint>
-#include <mutex>
 
 namespace NES
 {
@@ -36,28 +37,13 @@ namespace NES
     /// - http://wiki.nesdev.com/w/index.php/APU_Frame_Counter (sequencer)
     /// - http://wiki.nesdev.com/w/index.php/APU_Mixer (non-linear mixing)
     ///
-    /// LEARNING NOTE on timing: real hardware clocks the APU from the same
-    /// 1.789773 MHz (NTSC) clock as the CPU, one APU/CPU cycle at a time - a
-    /// cycle-accurate APU normally hangs directly off the CPU's own cycle
-    /// counter. This port's NES_CPU::Step() (CPU/CPU/NES_CPU.cpp) executes
-    /// one *whole instruction* per call and has never counted or exposed
-    /// individual CPU cycles, even before this file existed - Display()/NMI
-    /// are likewise already paced by the UI's ~60Hz render loop rather than
-    /// real per-scanline PPU/CPU interleaving (see NES_PPU.Display.cpp).
-    /// Wiring the APU to a per-cycle counter that doesn't exist wasn't
-    /// possible without a much larger CPU-timing rewrite, so this APU
-    /// instead free-runs its own clock in real wall-clock time, at the same
-    /// fixed 1.789773 MHz rate, driven from the SDL audio callback (see
-    /// NES_Audio/NES_Audio.cpp): every channel's period/envelope/sweep/
-    /// sequencer math is exactly what nesdev documents, just paced by
-    /// elapsed audio time instead of literal 6502 cycles. Register *writes*
-    /// still land the instant the CPU thread executes e.g. `STA $4000` (see
-    /// NES_APU_Register.cpp) - only the free-running channel/frame-sequencer
-    /// clock is time-based rather than cycle-counted. Since pitch/tempo/
-    /// envelope speed are entirely defined by this fixed clock rate (not by
-    /// how many instructions execute), this produces correct-sounding audio;
-    /// it just means audio isn't cycle-locked to CPU/PPU state, the same
-    /// looseness this port's PPU/CPU relationship already has.
+    /// LEARNING NOTE on timing: the APU runs on the same clock as the CPU (1.789773 MHz NTSC). After
+    /// every CPU instruction NES_CPU::Run() calls Advance() with the cycles that instruction took, so the
+    /// APU is clocked one CPU cycle at a time, in step with the emulated program (not with wall-clock
+    /// time). Every output sample is the average of the ~40 mixer values of one sample period (box
+    /// filter, avoids aliasing), followed by the console's own filters (high-pass 90 Hz and 440 Hz,
+    /// low-pass 14 kHz). The samples go through a lock-free queue to the SDL audio thread
+    /// (FillAudioBuffer()). Without a sound device the sample generation is skipped completely.
     class NES_APU
     {
     public:
@@ -78,13 +64,37 @@ namespace NES
         /// frame-IRQ flag as a read side effect, per nesdev.
         static uint8_t ReadStatus();
 
-        /// Renders `numSamples` mono 16-bit samples at `sampleRateHz` into
-        /// `buffer`, advancing the emulated APU clock by the equivalent
-        /// number of real CPU cycles as it goes (see the class comment on
-        /// why this - not a per-instruction hook - is what paces the APU in
-        /// this port). Called from the SDL audio callback; takes the
-        /// internal lock once for the whole batch rather than per sample.
-        static void FillAudioBuffer(int16_t* buffer, int numSamples, double sampleRateHz);
+        /// Fills `buffer` with `numSamples` mono 16-bit samples that Advance() has produced (repeats the last
+        /// sample when the emulation is behind). Called from the SDL audio callback.
+        static void FillAudioBuffer(int16_t* buffer, int numSamples);
+
+        /// Runs the APU for `cpuCycles` CPU cycles (called by the CPU loop after every instruction, so
+        /// registers, length counters, envelopes and the frame counter follow emulated time exactly).
+        /// When sound is wanted (see SetGenerateSamples()) it also produces audio samples.
+        static void Advance(int cpuCycles);
+
+        /// Sound output on/off. Off: only the parts a program can observe (length counters, frame
+        /// counter, DMC) are run, which is much cheaper; on: every channel is clocked every cycle and
+        /// samples are produced for FillAudioBuffer().
+        static void SetGenerateSamples(bool on) { generateSamples_.store(on, std::memory_order_relaxed); }
+        /// True while samples are produced.
+        static bool GenerateSamples() { return generateSamples_.load(std::memory_order_relaxed); }
+        /// Output sample rate in Hz (default 44100); set before sound starts.
+        static void SetSampleRate(double hz) { sampleRateHz_.store(hz, std::memory_order_relaxed); }
+
+        /// Mixes one set of channel outputs (pulse 0-15 each, triangle 0-15, noise 0-15, DMC 0-127) with the
+        /// NES's non-linear mixer, result 0.0 - 1.0 (see https://www.nesdev.org/wiki/APU_Mixer).
+        static float Mix(uint8_t pulse1, uint8_t pulse2, uint8_t triangle, uint8_t noise, uint8_t dmc);
+
+        /// Current channel outputs (pulse1, pulse2, triangle, noise, dmc), for tests and debugging.
+        static std::array<uint8_t, 5> ChannelOutputs();
+        /// Remaining length counter of channel 0 = pulse1, 1 = pulse2, 2 = triangle, 3 = noise (for tests).
+        static int LengthCounterValue(int channel);
+        /// Noise channel shift register (for tests).
+        static uint16_t NoiseShiftRegister() { return noise_.shiftRegister; }
+        /// Writes everything produced so far to a 16-bit mono WAV file (also done automatically at exit
+        /// when the environment variable `NES_AUDIO_WAV=<file.wav>` is set).
+        static bool WriteWav(const char* path);
 
     private:
         struct Envelope
@@ -222,17 +232,31 @@ namespace NES
         static bool frameIrqFlag_;
         static bool fiveStepMode_;
         static int frameSequencerCounter_; // in APU cycles (1 APU cycle = 2 CPU cycles)
-        static int cpuCycleParity_;        // toggles every CPU cycle; pulse/noise/DMA... wait DMC uses its own
+        static int cpuCycleParity_;        // toggles every CPU cycle; pulse and noise run on every 2nd one
 
-        static double cycleAccumulator_;
-        static float dcPrevIn_;
-        static float dcPrevOut_;
-        static std::mutex mutex_;
+        // Set by the main thread when the sound device opens, read by the CPU thread.
+        static std::atomic<bool> generateSamples_;
+        static std::atomic<double> sampleRateHz_;
+        static double cycleAccumulator_;      // CPU cycles since the last output sample
+        static double sampleSum_;             // sum of the mixer output over those cycles (box filter)
+        static int sampleCount_;
+        // NES output filters: high-pass 90 Hz, high-pass 440 Hz, low-pass 14 kHz (first order each)
+        static float hp1PrevIn_, hp1PrevOut_, hp2PrevIn_, hp2PrevOut_, lpPrev_;
+        static void PushSample(float mixed);
+        // Sample queue between the CPU thread (writer) and the audio thread (reader).
+        static constexpr uint32_t kRingSize = 1u << 15;
+        static constexpr uint32_t kMaxQueuedSamples = 4096; // ~93 ms: keeps sound latency low
+        static int16_t ring_[kRingSize];
+        static std::atomic<uint32_t> ringHead_; // next write index (CPU thread)
+        static std::atomic<uint32_t> ringTail_; // next read index (audio thread)
+        static int16_t lastSample_;
+        static bool filtersPrimed_;
 
-        static void ClockOneCpuCycle();
+        static void ClockOneCpuCycle(bool sound);
+        static double cyclesPerSample_;         // CPU cycles per output sample (CPU thread only)
+        static double cyclesPerSampleFor_;      // sample rate that value was computed for
         static void ClockQuarterFrame();
         static void ClockHalfFrame();
-        static float MixCurrentOutput();
 
         static const uint8_t kLengthTable[32];
         static const uint16_t kNoisePeriodTableNTSC[16];

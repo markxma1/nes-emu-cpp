@@ -89,7 +89,7 @@ namespace NES
             --timerCounter;
             return;
         }
-        timerCounter = rate;
+        timerCounter = rate - 1; // counts rate-1..0 = rate CPU cycles per bit
 
         if (!silence)
         {

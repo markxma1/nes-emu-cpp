@@ -59,7 +59,7 @@ namespace NES
     {
         if (timerCounter <= 0)
         {
-            timerCounter = timerPeriod + 1;
+            timerCounter = timerPeriod; // counts period..0 = period+1 ticks per duty step
             dutyStep = (dutyStep + 1) & 0x07;
         }
         else

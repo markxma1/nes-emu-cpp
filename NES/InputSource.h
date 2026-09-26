@@ -45,6 +45,10 @@ namespace NES
         /// True if `button` is currently held according to this source.
         virtual bool IsDown(const std::string& button) const = 0;
 
+        /// Like IsDown(), for controller `player` (1 or 2). By default a source only serves player 1; sources
+        /// that can tell two players apart (e.g. two gamepads) override this.
+        virtual bool IsDownForPlayer(int player, const std::string& button) const { return player == 1 && IsDown(button); }
+
         /// False if this source couldn't be opened/initialized (e.g. no
         /// gamepad plugged in, or no X11 display available) - callers
         /// should skip Poll()/IsDown() on an unavailable source rather than

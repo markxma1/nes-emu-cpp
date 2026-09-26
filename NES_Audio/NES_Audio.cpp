@@ -32,7 +32,7 @@ namespace NES
         {
             // len is in bytes; format is mono 16-bit, so 2 bytes/sample.
             int numSamples = len / 2;
-            NES_APU::FillAudioBuffer(reinterpret_cast<int16_t*>(stream), numSamples, kSampleRate);
+            NES_APU::FillAudioBuffer(reinterpret_cast<int16_t*>(stream), numSamples);
         }
     }
 
@@ -61,6 +61,8 @@ namespace NES
             return false;
         }
 
+        NES_APU::SetSampleRate(have.freq);
+        NES_APU::SetGenerateSamples(true); // the APU only produces samples while somebody listens
         SDL_PauseAudioDevice(device, 0); // start playback
         return true;
     }

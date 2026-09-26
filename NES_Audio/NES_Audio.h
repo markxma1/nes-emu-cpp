@@ -21,8 +21,9 @@ namespace NES
     /// @brief SDL2 audio output glue for NES_APU. UI-shell code (same
     /// category as InputSource.h/main.cpp). Deliberately thin: SDL owns a background
     /// thread that periodically calls back asking for N samples, and this
-    /// class's callback just calls NES_APU::FillAudioBuffer() to compute
-    /// them - all the actual emulation logic lives in NES_APU, not here.
+    /// class's callback just calls NES_APU::FillAudioBuffer() to fetch the
+    /// samples the emulated CPU thread produced (NES_APU::Advance()) - all the actual
+    /// emulation logic lives in NES_APU, not here.
     class NES_Audio
     {
     public:

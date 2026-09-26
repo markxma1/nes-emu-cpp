@@ -180,6 +180,27 @@ Keyboard bindings are stored in `keyboard.cfg` next to the binary (remap menu:
 `V` memory viewer, `C` CPU speed; `K` cycles which CHR bank state (as drawn,
 #0, #1, ...) the name table, pattern table and OAM viewers show.
 
+### Second controller (optional)
+
+Controller 2 is read through `$4017` exactly like controller 1 through `$4016` (one strobe write
+latches both). With two gamepads plugged in, start the emulator with `NES_TWO_PADS=1`: the first pad
+is player 1, the second pad player 2 (without it all pads are merged into player 1, as before). Input
+files (`NES_PLAYBACK_INPUT`, recordings) address player 2 with a `P2.` prefix, e.g. `120 P2.START 1`.
+Code that drives the emulator (tests, an AI) writes `NES_GamePad::Player2.Button[...]` directly.
+
+### Sound
+
+The APU is clocked by the emulated CPU (`NES_APU::Advance()` after every instruction), so pitch,
+envelopes and the frame counter follow emulated time, not the time of the audio callback. Every
+output sample is the average of one sample period of the non-linear mixer, followed by the console's
+own filters (high-pass 90 Hz and 440 Hz, low-pass 14 kHz); a lock-free queue hands the samples to
+the SDL audio thread. Without a sound device no samples are generated (faster, e.g. for `nes-bench`).
+To listen to what a game would sound like without a window or sound card, record it:
+
+```sh
+NES_AUDIO_WAV=/tmp/game.wav ./build/nes-bench game.nes 1500   # then play /tmp/game.wav with any player
+```
+
 ## What this is (and isn't)
 
 - A **scanline-accurate**, not fully cycle-accurate, NES emulator.
@@ -361,6 +382,8 @@ this stops passing, that's your bug, found before it ever reaches a game ROM.
   unimplemented** (`LAX #imm`/`$AB`, `XAA`/`$8B`, the `SHA`/`SHX`/`SHY`/`TAS`/
   `AHX` family) - their real behavior varies by console/temperature, and no
   real software deliberately relies on them.
+- **The APU is exact per CPU cycle for pitch and envelopes, but the DMC does not steal CPU cycles** and the
+  frame-counter IRQ is only readable through `$4015`, it is not delivered to the CPU yet.
 - **CPU timing is instruction-atomic**: each instruction runs as one step and
   its total cycle count (including branch / page-crossing penalties and the OAM
   DMA stall) is charged afterwards, so the PPU is advanced per instruction, not

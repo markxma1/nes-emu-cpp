@@ -45,7 +45,7 @@ namespace NES
     {
         if (timerCounter <= 0)
         {
-            timerCounter = timerPeriod;
+            timerCounter = timerPeriod / 2 - 1; // table is in CPU cycles, this timer ticks every 2nd one
             int tapBit = mode ? 6 : 1;
             uint16_t feedback = (shiftRegister & 0x0001) ^ ((shiftRegister >> tapBit) & 0x0001);
             shiftRegister >>= 1;

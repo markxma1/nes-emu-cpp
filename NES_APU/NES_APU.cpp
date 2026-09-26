@@ -16,7 +16,12 @@
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
 #include "EnvFlag.h"
 #include "NES_APU.h"
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
 #include <cstdlib>
 #include <iostream>
 
@@ -34,10 +39,27 @@ namespace NES
     int NES_APU::frameSequencerCounter_ = 0;
     int NES_APU::cpuCycleParity_ = 0;
 
+    std::atomic<bool> NES_APU::generateSamples_{false};
+    std::atomic<double> NES_APU::sampleRateHz_{44100.0};
+    double NES_APU::cyclesPerSampleFor_ = 44100.0;
+    double NES_APU::cyclesPerSample_ = NES_APU::kCpuClockHzNTSC / 44100.0;
     double NES_APU::cycleAccumulator_ = 0.0;
-    float NES_APU::dcPrevIn_ = 0.0f;
-    float NES_APU::dcPrevOut_ = 0.0f;
-    std::mutex NES_APU::mutex_;
+    double NES_APU::sampleSum_ = 0.0;
+    int NES_APU::sampleCount_ = 0;
+    float NES_APU::hp1PrevIn_ = 0.0f, NES_APU::hp1PrevOut_ = 0.0f;
+    float NES_APU::hp2PrevIn_ = 0.0f, NES_APU::hp2PrevOut_ = 0.0f;
+    float NES_APU::lpPrev_ = 0.0f;
+    int16_t NES_APU::ring_[NES_APU::kRingSize];
+    std::atomic<uint32_t> NES_APU::ringHead_{0};
+    std::atomic<uint32_t> NES_APU::ringTail_{0};
+    int16_t NES_APU::lastSample_ = 0;
+    bool NES_APU::filtersPrimed_ = false;
+
+    namespace
+    {
+        std::vector<int16_t>& WavSamples() { static std::vector<int16_t> v; return v; }
+        std::string& WavPath() { static std::string p; return p; }
+    }
 
     // http://wiki.nesdev.com/w/index.php/APU_Length_Counter
     const uint8_t NES_APU::kLengthTable[32] = {
@@ -110,7 +132,6 @@ namespace NES
 
     void NES_APU::Reset()
     {
-        std::lock_guard<std::mutex> lock(mutex_);
         pulse1_ = Pulse{};
         pulse1_.isChannel2 = false;
         pulse2_ = Pulse{};
@@ -126,8 +147,27 @@ namespace NES
         frameSequencerCounter_ = 0;
         cpuCycleParity_ = 0;
         cycleAccumulator_ = 0.0;
-        dcPrevIn_ = 0.0f;
-        dcPrevOut_ = 0.0f;
+        sampleSum_ = 0.0;
+        sampleCount_ = 0;
+        hp1PrevIn_ = hp1PrevOut_ = hp2PrevIn_ = hp2PrevOut_ = lpPrev_ = 0.0f;
+        filtersPrimed_ = false;
+        cyclesPerSampleFor_ = sampleRateHz_.load();
+        cyclesPerSample_ = kCpuClockHzNTSC / cyclesPerSampleFor_;
+        ringTail_.store(ringHead_.load()); // drop queued sound of the previous game
+
+        // NES_AUDIO_WAV=<file.wav>: record the sound into a file (works without a sound device, too).
+        static bool wavChecked = false;
+        if (!wavChecked)
+        {
+            wavChecked = true;
+            if (const char* path = NES_GETENV("NES_AUDIO_WAV"))
+            {
+                WavPath() = path;
+                WavSamples().reserve(1 << 20);
+                generateSamples_.store(true);
+                std::atexit([] { WriteWav(WavPath().c_str()); });
+            }
+        }
     }
 
     void NES_APU::WriteRegister(uint16_t address, uint8_t value)
@@ -145,7 +185,6 @@ namespace NES
                 writeCount = 0;
             }
         }
-        std::lock_guard<std::mutex> lock(mutex_);
         switch (address)
         {
             case 0x4000: pulse1_.WriteReg0(value); break;
@@ -216,7 +255,6 @@ namespace NES
 
     uint8_t NES_APU::ReadStatus()
     {
-        std::lock_guard<std::mutex> lock(mutex_);
         uint8_t status = 0;
         if (!pulse1_.length.Silenced()) status |= 0x01;
         if (!pulse2_.length.Silenced()) status |= 0x02;
@@ -250,103 +288,183 @@ namespace NES
     // http://wiki.nesdev.com/w/index.php/APU_Frame_Counter - NTSC step
     // numbers, in APU cycles (1 APU cycle = 2 CPU cycles, the same cadence
     // pulse/noise timers clock at).
+    //   4-step: quarter at 3728, quarter+half at 7456, quarter at 11185, quarter+half (+IRQ) at 14914
+    //   5-step: quarter at 3728, quarter+half at 7456, quarter at 11185, nothing at 14914, quarter+half at 18640
     namespace
     {
-        constexpr int kQuarterFrameSteps[4] = { 3728, 7456, 11185, 14914 };
-        constexpr int kFifthStep = 18640;
+        constexpr int kStep1 = 3728, kStep2 = 7456, kStep3 = 11185, kStep4 = 14914, kStep5 = 18640;
     }
 
-    void NES_APU::ClockOneCpuCycle()
+    void NES_APU::ClockOneCpuCycle(bool sound)
     {
-        // Triangle's timer and the DMC's own timer both clock every CPU
-        // cycle (http://wiki.nesdev.com/w/index.php/APU#Triangle_.28.244008.2C_.24400A.2C_.24400B.29,
-        // DMC's rate table is documented directly in CPU cycles).
-        triangle_.ClockTimer();
-        dmc_.ClockTimer();
+        // Triangle's timer and the DMC's timer clock every CPU cycle (DMC's rate table is in CPU cycles).
+        // Without sound only what a program can observe is run: the DMC matters while it is playing
+        // (reads memory, raises its IRQ flag); the tone timers matter for nothing but the output.
+        if (sound)
+            triangle_.ClockTimer();
+        if (sound || dmc_.bytesRemaining > 0 || dmc_.sampleBufferFilled || !dmc_.silence)
+            dmc_.ClockTimer();
 
         cpuCycleParity_ ^= 1;
         if (cpuCycleParity_ != 0)
             return; // pulse/noise/frame-sequencer clock every *2nd* CPU cycle
 
-        pulse1_.ClockTimer();
-        pulse2_.ClockTimer();
-        noise_.ClockTimer();
+        if (sound)
+        {
+            pulse1_.ClockTimer();
+            pulse2_.ClockTimer();
+            noise_.ClockTimer();
+        }
 
         ++frameSequencerCounter_;
-        bool isQuarter = frameSequencerCounter_ == kQuarterFrameSteps[0] ||
-                          frameSequencerCounter_ == kQuarterFrameSteps[1] ||
-                          frameSequencerCounter_ == kQuarterFrameSteps[2] ||
-                          frameSequencerCounter_ == kQuarterFrameSteps[3] ||
-                          (fiveStepMode_ && frameSequencerCounter_ == kFifthStep);
-        bool isHalf = frameSequencerCounter_ == kQuarterFrameSteps[1] ||
-                      frameSequencerCounter_ == kQuarterFrameSteps[3] ||
-                      (fiveStepMode_ && frameSequencerCounter_ == kFifthStep);
+        const int n = frameSequencerCounter_;
+        bool isQuarter = n == kStep1 || n == kStep2 || n == kStep3 || (!fiveStepMode_ && n == kStep4) || (fiveStepMode_ && n == kStep5);
+        bool isHalf = n == kStep2 || (!fiveStepMode_ && n == kStep4) || (fiveStepMode_ && n == kStep5);
 
         if (isQuarter)
             ClockQuarterFrame();
         if (isHalf)
             ClockHalfFrame();
 
-        if (!fiveStepMode_ && frameSequencerCounter_ == kQuarterFrameSteps[3] && !frameIrqInhibit_)
+        if (!fiveStepMode_ && n == kStep4 && !frameIrqInhibit_)
             frameIrqFlag_ = true;
 
-        int lastStep = fiveStepMode_ ? kFifthStep : kQuarterFrameSteps[3];
-        if (frameSequencerCounter_ >= lastStep)
+        if (n >= (fiveStepMode_ ? kStep5 : kStep4))
             frameSequencerCounter_ = 0;
     }
 
-    // http://wiki.nesdev.com/w/index.php/APU_Mixer - lookup-table-equivalent
-    // formula approach (computed directly rather than via a precomputed
-    // table, since this isn't a hot enough path to need it: one call per
-    // output audio sample, not per CPU cycle).
-    float NES_APU::MixCurrentOutput()
+    // http://wiki.nesdev.com/w/index.php/APU_Mixer - the "lookup table" approximation of the non-linear
+    // mixer: pulse_table[n] = 95.52 / (8128/n + 100), tnd_table[n] = 163.67 / (24329/n + 100).
+    float NES_APU::Mix(uint8_t pulse1, uint8_t pulse2, uint8_t triangle, uint8_t noise, uint8_t dmc)
     {
-        uint8_t p1 = pulse1_.Output();
-        uint8_t p2 = pulse2_.Output();
-        uint8_t tr = triangle_.Output();
-        uint8_t ns = noise_.Output();
-        uint8_t dm = dmc_.Output();
-
-        float pulseOut = (p1 == 0 && p2 == 0)
-            ? 0.0f
-            : 95.88f / (8128.0f / static_cast<float>(p1 + p2) + 100.0f);
-
-        float tndSum = static_cast<float>(tr) / 8227.0f
-                     + static_cast<float>(ns) / 12241.0f
-                     + static_cast<float>(dm) / 22638.0f;
-        float tndOut = (tr == 0 && ns == 0 && dm == 0) ? 0.0f : 159.79f / (tndSum + 100.0f);
-
-        float mixed = pulseOut + tndOut; // always >= 0 - has a large DC offset
-
-        // Real hardware's output stage includes RC high-pass filtering that
-        // removes this DC bias before the signal reaches the audio jack
-        // (see APU_Mixer's "Emulation" section) - approximated here with a
-        // simple one-pole DC blocker so samples end up centered around 0
-        // instead of clicking/wasting headroom sitting at a constant offset.
-        constexpr float kDcAlpha = 0.996f;
-        float filtered = mixed - dcPrevIn_ + kDcAlpha * dcPrevOut_;
-        dcPrevIn_ = mixed;
-        dcPrevOut_ = filtered;
-        return filtered;
+        static const struct Tables
+        {
+            float pulse[31];
+            float tnd[203];
+            Tables()
+            {
+                pulse[0] = 0.0f;
+                for (int n = 1; n < 31; ++n)
+                    pulse[n] = 95.52f / (8128.0f / static_cast<float>(n) + 100.0f);
+                tnd[0] = 0.0f;
+                for (int n = 1; n < 203; ++n)
+                    tnd[n] = 163.67f / (24329.0f / static_cast<float>(n) + 100.0f);
+            }
+        } tables;
+        return tables.pulse[pulse1 + pulse2] + tables.tnd[3 * triangle + 2 * noise + dmc];
     }
 
-    void NES_APU::FillAudioBuffer(int16_t* buffer, int numSamples, double sampleRateHz)
+    std::array<uint8_t, 5> NES_APU::ChannelOutputs()
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        double cyclesPerSample = kCpuClockHzNTSC / sampleRateHz;
+        return { pulse1_.Output(), pulse2_.Output(), triangle_.Output(), noise_.Output(), dmc_.Output() };
+    }
+
+    int NES_APU::LengthCounterValue(int channel)
+    {
+        switch (channel)
+        {
+            case 0: return pulse1_.length.value;
+            case 1: return pulse2_.length.value;
+            case 2: return triangle_.length.value;
+            default: return noise_.length.value;
+        }
+    }
+
+    // One finished output sample (average of the mixer over one sample period) -> console filters -> queue.
+    void NES_APU::PushSample(float mixed)
+    {
+        // First-order filters as on the console: y = a*(y + x - xPrev) for high-pass, y += b*(x - y) for low-pass.
+        const float dt = static_cast<float>(1.0 / cyclesPerSampleFor_);
+        auto highPass = [dt](float cutoffHz, float x, float& prevIn, float& prevOut) {
+            const float rc = 1.0f / (2.0f * 3.14159265f * cutoffHz);
+            const float a = rc / (rc + dt);
+            prevOut = a * (prevOut + x - prevIn);
+            prevIn = x;
+            return prevOut;
+        };
+        if (!filtersPrimed_)
+        {
+            // start from the current level instead of from 0: no loud pop when sound begins
+            filtersPrimed_ = true;
+            hp1PrevIn_ = mixed;
+        }
+        float y = highPass(90.0f, mixed, hp1PrevIn_, hp1PrevOut_);
+        y = highPass(440.0f, y, hp2PrevIn_, hp2PrevOut_);
+        const float rcLow = 1.0f / (2.0f * 3.14159265f * 14000.0f);
+        lpPrev_ += (dt / (rcLow + dt)) * (y - lpPrev_);
+
+        int sample = static_cast<int>(std::lround(lpPrev_ * 40000.0f));
+        sample = std::clamp(sample, -32768, 32767);
+        const int16_t s = static_cast<int16_t>(sample);
+
+        if (!WavPath().empty())
+            WavSamples().push_back(s);
+
+        const uint32_t head = ringHead_.load(std::memory_order_relaxed);
+        const uint32_t tail = ringTail_.load(std::memory_order_acquire);
+        if (head - tail >= kMaxQueuedSamples)
+            return; // audio thread is behind (or emulation runs faster than real time): drop, keep latency low
+        ring_[head & (kRingSize - 1)] = s;
+        ringHead_.store(head + 1, std::memory_order_release);
+    }
+
+    void NES_APU::Advance(int cpuCycles)
+    {
+        if (!generateSamples_.load(std::memory_order_relaxed))
+        {
+            for (int i = 0; i < cpuCycles; ++i)
+                ClockOneCpuCycle(false);
+            return;
+        }
+        if (cyclesPerSampleFor_ != sampleRateHz_.load(std::memory_order_relaxed))
+        {
+            // The sound device opened (or changed rate) while the emulation was already running.
+            cyclesPerSampleFor_ = sampleRateHz_.load(std::memory_order_relaxed);
+            cyclesPerSample_ = kCpuClockHzNTSC / cyclesPerSampleFor_;
+        }
+        for (int i = 0; i < cpuCycles; ++i)
+        {
+            ClockOneCpuCycle(true);
+            sampleSum_ += Mix(pulse1_.Output(), pulse2_.Output(), triangle_.Output(), noise_.Output(), dmc_.Output());
+            ++sampleCount_;
+            cycleAccumulator_ += 1.0;
+            if (cycleAccumulator_ >= cyclesPerSample_)
+            {
+                cycleAccumulator_ -= cyclesPerSample_;
+                PushSample(static_cast<float>(sampleSum_ / sampleCount_));
+                sampleSum_ = 0.0;
+                sampleCount_ = 0;
+            }
+        }
+    }
+
+    void NES_APU::FillAudioBuffer(int16_t* buffer, int numSamples)
+    {
+        uint32_t tail = ringTail_.load(std::memory_order_relaxed);
+        const uint32_t head = ringHead_.load(std::memory_order_acquire);
         for (int i = 0; i < numSamples; ++i)
         {
-            cycleAccumulator_ += cyclesPerSample;
-            int cyclesThisSample = static_cast<int>(cycleAccumulator_);
-            cycleAccumulator_ -= cyclesThisSample;
-            for (int c = 0; c < cyclesThisSample; ++c)
-                ClockOneCpuCycle();
-
-            float mixed = MixCurrentOutput();
-            int sample = static_cast<int>(mixed * 32767.0f);
-            if (sample > 32767) sample = 32767;
-            if (sample < -32768) sample = -32768;
-            buffer[i] = static_cast<int16_t>(sample);
+            if (tail != head)
+                lastSample_ = ring_[tail++ & (kRingSize - 1)];
+            buffer[i] = lastSample_; // queue empty: hold the last value (no click)
         }
+        ringTail_.store(tail, std::memory_order_release);
+    }
+
+    bool NES_APU::WriteWav(const char* path)
+    {
+        const std::vector<int16_t>& v = WavSamples();
+        FILE* f = std::fopen(path, "wb");
+        if (!f)
+            return false;
+        auto w32 = [f](uint32_t x) { std::fwrite(&x, 4, 1, f); };
+        auto w16 = [f](uint16_t x) { std::fwrite(&x, 2, 1, f); };
+        const uint32_t dataBytes = static_cast<uint32_t>(v.size() * 2);
+        std::fwrite("RIFF", 1, 4, f); w32(36 + dataBytes); std::fwrite("WAVEfmt ", 1, 8, f);
+        w32(16); w16(1); w16(1); w32(static_cast<uint32_t>(sampleRateHz_.load())); w32(static_cast<uint32_t>(sampleRateHz_.load()) * 2); w16(2); w16(16);
+        std::fwrite("data", 1, 4, f); w32(dataBytes);
+        std::fwrite(v.data(), 2, v.size(), f);
+        std::fclose(f);
+        return true;
     }
 }

@@ -202,6 +202,24 @@ namespace
     {
         for (const auto& name : kButtonNames)
             SetButton(NES::NES_GamePad::Player1, name, AnySourceDown(name));
+        // Player 2: only sources that can tell the players apart (two gamepads, NES_TWO_PADS=1) feed it.
+        for (const auto& name : kButtonNames)
+        {
+            bool down = false;
+            for (auto& src : inputSources)
+                if (src->Available() && src->IsDownForPlayer(2, name))
+                    down = true;
+            SetButton(NES::NES_GamePad::Player2, name, down);
+        }
+    }
+
+    /// Sets a button from a playback/recording name: "A" is player 1, "P2.A" is player 2.
+    void SetPlaybackButton(const std::string& name, bool down)
+    {
+        if (name.rfind("P2.", 0) == 0)
+            SetButton(NES::NES_GamePad::Player2, name.substr(3), down);
+        else
+            SetButton(NES::NES_GamePad::Player1, name, down);
     }
 
     /// TEMPORARY diagnostic aid, not a port of anything - opt-in via
@@ -541,6 +559,8 @@ namespace
         recordedPrevState.clear();
         for (const auto& b : NES::NES_GamePad::Player1.Button)
             recordedPrevState[b.first] = b.second;
+        for (const auto& b : NES::NES_GamePad::Player2.Button)
+            recordedPrevState["P2." + b.first] = b.second;
         std::cout << "Recording input... press Y again to stop and save." << std::endl;
     }
 
@@ -578,6 +598,15 @@ namespace
             if (b.second != prev)
             {
                 recordedEvents.emplace_back(uiFrame, b.first, b.second);
+                prev = b.second;
+            }
+        }
+        for (const auto& b : NES::NES_GamePad::Player2.Button)
+        {
+            bool& prev = recordedPrevState["P2." + b.first];
+            if (b.second != prev)
+            {
+                recordedEvents.emplace_back(uiFrame, "P2." + b.first, b.second);
                 prev = b.second;
             }
         }
@@ -1208,7 +1237,7 @@ int main(int argc, char** argv)
             if (it == playbackEvents.end())
                 return;
             for (const auto& [button, down] : it->second)
-                SetButton(NES::NES_GamePad::Player1, button, down);
+                SetPlaybackButton(button, down);
         };
     }
 
@@ -1826,7 +1855,10 @@ int main(int argc, char** argv)
                 // button already held down when focus is lost doesn't stay
                 // "stuck" pressed in the emulator until focus comes back.
                 for (const std::string& button : kButtonNames)
+                {
                     SetButton(NES::NES_GamePad::Player1, button, false);
+                    SetButton(NES::NES_GamePad::Player2, button, false);
+                }
             }
             // NEW - deliberately *not* gated on `focused` (unlike the real
             // keyboard/gamepad input above): these are explicit, opt-in

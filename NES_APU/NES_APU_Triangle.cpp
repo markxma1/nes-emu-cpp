@@ -46,7 +46,7 @@ namespace NES
     {
         if (timerCounter <= 0)
         {
-            timerCounter = timerPeriod + 1;
+            timerCounter = timerPeriod; // counts period..0 = period+1 CPU cycles per step
             // Real hardware freezes the sequencer (rather than silencing the
             // output) when either counter is 0 - this is what keeps the
             // triangle from producing an audible "ultrasonic pop" click

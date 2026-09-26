@@ -25,6 +25,7 @@
 #include "NES_PPU_Register.h"
 #include "NES_PPU.h"
 #include "NES_Console.h"
+#include "NES_APU.h"
 #include "Math.h"
 #include "Parameter.h"
 #include "Profiler.h"
@@ -612,6 +613,10 @@ namespace NES
             {
                 NES_PROFILE_HOT("cpu_step");
                 cycles = Step();
+            }
+            {
+                NES_PROFILE_HOT("apu_advance");
+                NES_APU::Advance(cycles);
             }
             bool frameDone;
             {

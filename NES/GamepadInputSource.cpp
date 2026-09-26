@@ -14,6 +14,7 @@
 ///
 ///   You should have received a copy of the GNU General Public License
 ///   along with NES-C#. If not, see http://www.gnu.org/licenses/.
+#include "EnvFlag.h"
 #include "GamepadInputSource.h"
 
 #include <cstdlib>
@@ -47,6 +48,7 @@ namespace NES
             }
         }
 #endif
+        twoPads = NES_GETENV("NES_TWO_PADS") && devices.size() >= 2;
         if (devices.empty())
             std::cerr << "No gamepad found at /dev/input/js0-3 - running keyboard-only "
                          "(this is normal if nothing is plugged in)." << std::endl;
@@ -107,32 +109,48 @@ namespace NES
 #endif
     }
 
-    bool GamepadInputSource::IsLabelActive(const std::string& label) const
+    bool GamepadInputSource::IsLabelActiveOn(size_t deviceIndex, const std::string& label) const
     {
 #ifdef __linux__
-        for (const auto& d : devices)
+        const Device& d = devices[deviceIndex];
+        if (label.rfind("Button ", 0) == 0)
         {
-            if (label.rfind("Button ", 0) == 0)
-            {
-                int n = std::atoi(label.c_str() + 7);
-                if (n >= 0 && n < kMaxButtons && d.buttonDown[static_cast<size_t>(n)])
-                    return true;
-            }
-            else if (label.rfind("Axis ", 0) == 0 && !label.empty())
-            {
-                char sign = label.back();
-                int n = std::atoi(label.c_str() + 5);
-                if (n < 0 || n >= kMaxAxes)
-                    continue;
-                int v = d.axisValue[static_cast<size_t>(n)];
-                if (sign == '+' ? v > kAxisThreshold : v < -kAxisThreshold)
-                    return true;
-            }
+            int n = std::atoi(label.c_str() + 7);
+            return n >= 0 && n < kMaxButtons && d.buttonDown[static_cast<size_t>(n)];
+        }
+        if (label.rfind("Axis ", 0) == 0 && !label.empty())
+        {
+            char sign = label.back();
+            int n = std::atoi(label.c_str() + 5);
+            if (n < 0 || n >= kMaxAxes)
+                return false;
+            int v = d.axisValue[static_cast<size_t>(n)];
+            return sign == '+' ? v > kAxisThreshold : v < -kAxisThreshold;
         }
 #else
+        (void)deviceIndex;
         (void)label;
 #endif
         return false;
+    }
+
+    bool GamepadInputSource::IsLabelActive(const std::string& label) const
+    {
+        for (size_t i = 0; i < devices.size(); ++i)
+            if (IsLabelActiveOn(i, label))
+                return true;
+        return false;
+    }
+
+    bool GamepadInputSource::IsDownForPlayer(int player, const std::string& button) const
+    {
+        if (!twoPads)
+            return player == 1 && IsDown(button);
+        size_t index = player == 1 ? 0 : 1;
+        if (index >= devices.size())
+            return false;
+        auto it = bindings.find(button);
+        return it != bindings.end() && IsLabelActiveOn(index, it->second);
     }
 
     bool GamepadInputSource::IsDown(const std::string& button) const

@@ -26,6 +26,7 @@
 #include "INES.h"
 #include "Interrupt.h"
 #include "NES_CPU.h"
+#include "NES_APU.h"
 #include "NES_Console.h"
 #include "NES_GamePad.h"
 #include "NES_Memory.h"
@@ -39,13 +40,16 @@
 #include "NES_Register.h"
 #include "NES_SaveState.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace NES;
 
@@ -524,6 +528,32 @@ namespace
         Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: the 9th read returns 1 (plus open bus)");
         Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller: every further read also returns 1");
         NES_GamePad::Player1.Button[0].second = false;
+    }
+
+    /// Controller 2 is read at $4017 with the same protocol; one strobe write to $4016 latches both.
+    void TestSecondControllerReadProtocol()
+    {
+        for (auto& b : NES_GamePad::Player1.Button) b.second = false;
+        for (auto& b : NES_GamePad::Player2.Button) b.second = false;
+        NES_GamePad::Player2.Button[1].second = true; // B
+        NES_GamePad::Player2.Button[7].second = true; // Right
+        NES_GamePad::Player1.Button[0].second = true; // A on player 1 must not leak into player 2
+        NES_Memory::Memory[0x4016]->Value(1);
+        NES_Memory::Memory[0x4016]->Value(0);
+        const uint8_t expected[8] = { 0, 1, 0, 0, 0, 0, 0, 1 };
+        bool ok = true;
+        for (int i = 0; i < 8; ++i)
+            ok = ok && NES_Memory::Memory[0x4017]->Value() == (0x40 | expected[i]);
+        Check(ok, "Controller 2: $4017 must return A,B,Select,Start,Up,Down,Left,Right of player 2 (plus open bus $40)");
+        Check(NES_Memory::Memory[0x4017]->Value() == 0x41, "Controller 2: the 9th read returns 1");
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x41, "Controller 2: player 1 is read independently (A pressed)");
+        Check(NES_Memory::Memory[0x4016]->Value() == 0x40, "Controller 2: player 1's second read is B, unaffected by player 2's reads");
+        NES_Memory::Memory[0x4016]->Value(1);
+        NES_Memory::Memory[0x4016]->Value(0);
+        NES_Memory::Memory[0x4017]->Value(); // A (released)
+        Check(NES_Memory::Memory[0x4017]->Value() == 0x41, "Controller 2: a strobe restarts player 2's sequence at A");
+        for (auto& b : NES_GamePad::Player1.Button) b.second = false;
+        for (auto& b : NES_GamePad::Player2.Button) b.second = false;
     }
 
     /// A mid-frame double $2006 write copies t into v, so the following
@@ -1629,6 +1659,167 @@ namespace
     }
 }
 
+
+    // ---- APU (sound) -------------------------------------------------------------------------------
+
+    void ApuStart()
+    {
+        NES_APU::Reset();
+        NES_APU::SetGenerateSamples(true); // the tone timers only run while sound is produced
+    }
+
+    // The mixer is non-linear (https://www.nesdev.org/wiki/APU_Mixer): full triangle is about 0.2555, one
+    // triangle step 1/15 of that is tiny. A formula that returned nearly the same loudness for every non-zero
+    // triangle/noise/DMC value made those channels far too loud and drowned the pulse channels.
+    void TestApuMixerIsNonLinear()
+    {
+        float full = NES_APU::Mix(0, 0, 15, 0, 0);
+        float small = NES_APU::Mix(0, 0, 1, 0, 0);
+        Check(std::fabs(full - 0.2555f) < 0.002f, "APU mixer: triangle 15 must give ~0.2555 (got " + std::to_string(full) + ")");
+        Check(small < 0.02f, "APU mixer: triangle 1 must be nearly silent (got " + std::to_string(small) + ")");
+        float pulses = NES_APU::Mix(15, 15, 0, 0, 0);
+        Check(std::fabs(pulses - 0.2588f) < 0.003f, "APU mixer: two full pulses must give ~0.2588 (got " + std::to_string(pulses) + ")");
+        float everything = NES_APU::Mix(15, 15, 15, 15, 127);
+        Check(everything < 1.01f, "APU mixer: the loudest possible mix stays about 1.0 (got " + std::to_string(everything) + ")");
+    }
+
+    // One duty cycle (8 steps) of a pulse channel lasts 16*(t+1) CPU cycles: count rising edges of the output.
+    void TestApuPulseFrequency()
+    {
+        ApuStart();
+        const int t = 100;
+        NES_APU::WriteRegister(0x4015, 0x01);
+        NES_APU::WriteRegister(0x4000, 0xBF); // 50% duty, halt, constant volume 15
+        NES_APU::WriteRegister(0x4002, t & 0xFF);
+        NES_APU::WriteRegister(0x4003, (t >> 8) & 7);
+        std::vector<int> edgeAt;
+        uint8_t last = NES_APU::ChannelOutputs()[0];
+        for (int i = 0; i < 16 * (t + 1) * 5; i++)
+        {
+            NES_APU::Advance(1);
+            uint8_t now = NES_APU::ChannelOutputs()[0];
+            if (last == 0 && now != 0)
+                edgeAt.push_back(i);
+            last = now;
+        }
+        bool ok = edgeAt.size() >= 4;
+        for (size_t k = 1; ok && k < edgeAt.size(); k++)
+            ok = edgeAt[k] - edgeAt[k - 1] == 16 * (t + 1);
+        Check(ok, "APU pulse: period 100 must repeat exactly every 16*(t+1) = 1616 CPU cycles (" + std::to_string(edgeAt.size()) + " edges)");
+    }
+
+    // The triangle sequence (32 steps) lasts 32*(t+1) CPU cycles.
+    void TestApuTriangleFrequency()
+    {
+        ApuStart();
+        const int t = 50;
+        NES_APU::WriteRegister(0x4015, 0x04);
+        NES_APU::WriteRegister(0x4008, 0xFF);
+        NES_APU::WriteRegister(0x400A, t);
+        NES_APU::WriteRegister(0x400B, 0x08);
+        NES_APU::Advance(20000); // the linear counter is loaded by the first quarter-frame clock
+        int rounds = 0;
+        uint8_t last = NES_APU::ChannelOutputs()[2];
+        const int cycles = 32 * (t + 1) * 20;
+        for (int i = 0; i < cycles; i++)
+        {
+            NES_APU::Advance(1);
+            uint8_t now = NES_APU::ChannelOutputs()[2];
+            if (last == 1 && now == 0)
+                rounds++;
+            last = now;
+        }
+        Check(rounds == 20, "APU triangle: period 50 must give one round per 32*(t+1) CPU cycles (got " + std::to_string(rounds) + " rounds, expected 20)");
+    }
+
+    // Noise period table is in CPU cycles: index 0 = shift every 4 CPU cycles.
+    void TestApuNoiseTimer()
+    {
+        ApuStart();
+        NES_APU::WriteRegister(0x400E, 0x00);
+        int shifts = 0;
+        uint16_t last = NES_APU::NoiseShiftRegister();
+        for (int i = 0; i < 400; i++)
+        {
+            NES_APU::Advance(1);
+            uint16_t now = NES_APU::NoiseShiftRegister();
+            if (now != last)
+                shifts++;
+            last = now;
+        }
+        Check(shifts >= 99 && shifts <= 101, "APU noise: period index 0 shifts every 4 CPU cycles, expected ~100 shifts in 400 cycles (got " + std::to_string(shifts) + ")");
+    }
+
+    // DMC rate index 15 = one bit every 54 CPU cycles; with loop set the sample never ends.
+    void TestApuDmcRate()
+    {
+        ApuStart();
+        NES_APU::WriteRegister(0x4010, 0x4F);
+        NES_APU::WriteRegister(0x4011, 64);
+        NES_APU::WriteRegister(0x4012, 0x00);
+        NES_APU::WriteRegister(0x4013, 0x00);
+        NES_APU::WriteRegister(0x4015, 0x10);
+        std::vector<int> changeAt;
+        uint8_t last = NES_APU::ChannelOutputs()[4];
+        for (int i = 0; i < 54 * 40; i++) // the first byte is fetched into an empty shifter, output starts after 8 bits
+        {
+            NES_APU::Advance(1);
+            uint8_t now = NES_APU::ChannelOutputs()[4];
+            if (now != last)
+                changeAt.push_back(i);
+            last = now;
+        }
+        bool ok = changeAt.size() >= 8;
+        for (size_t k = 1; ok && k < changeAt.size(); k++)
+            ok = changeAt[k] - changeAt[k - 1] == 54;
+        Check(ok, "APU DMC: rate index 15 changes the level exactly every 54 CPU cycles (" + std::to_string(changeAt.size()) + " changes)");
+    }
+
+    // 5-step mode: the fourth step (14914) does nothing, only the fifth (18640) clocks length counters again.
+    void TestApuFiveStepFrameCounter()
+    {
+        ApuStart();
+        NES_APU::WriteRegister(0x4015, 0x01);
+        NES_APU::WriteRegister(0x4000, 0x00); // halt off
+        NES_APU::WriteRegister(0x4003, 0x08); // length index 1 = 254
+        NES_APU::WriteRegister(0x4017, 0x80); // 5-step: clocks quarter+half at once (-> 253)
+        NES_APU::Advance(2 * 14914 + 8);      // half clock at 7456 (-> 252), step 14914 must not clock
+        int len = NES_APU::LengthCounterValue(0);
+        Check(len == 252, "APU frame counter: in 5-step mode step 4 must not clock the length counters (expected 252, got " + std::to_string(len) + ")");
+    }
+
+    // End to end: 440 Hz-ish pulse tone through the whole chain (timer, mixer, averaging, filters, queue).
+    void TestApuSampleStreamHasRightPitch()
+    {
+        ApuStart();
+        NES_APU::SetSampleRate(44100.0);
+        NES_APU::Reset();
+        NES_APU::SetGenerateSamples(true);
+        const int t = 253; // 1789773/(16*254) = 440.4 Hz
+        NES_APU::WriteRegister(0x4015, 0x01);
+        NES_APU::WriteRegister(0x4000, 0xBF);
+        NES_APU::WriteRegister(0x4002, t & 0xFF);
+        NES_APU::WriteRegister(0x4003, (t >> 8) & 7);
+        std::vector<int16_t> out;
+        int16_t buf[512];
+        for (int chunk = 0; chunk < 1789; chunk++) // 1 s in 1000-cycle chunks, drained like the audio thread does
+        {
+            NES_APU::Advance(1000);
+            NES_APU::FillAudioBuffer(buf, 40);
+            out.insert(out.end(), buf, buf + 40);
+        }
+        int crossings = 0, peak = 0;
+        for (size_t i = 1; i < out.size(); i++)
+        {
+            if (out[i - 1] <= 0 && out[i] > 0)
+                crossings++;
+            peak = std::max(peak, std::abs(static_cast<int>(out[i])));
+        }
+        NES_APU::SetGenerateSamples(false);
+        Check(crossings >= 436 && crossings <= 444, "APU stream: expected ~440 rising zero crossings in one second (got " + std::to_string(crossings) + ")");
+        Check(peak > 2000 && peak < 32000, "APU stream: a full-volume pulse must be clearly audible but not clip (peak " + std::to_string(peak) + ")");
+    }
+
 int main()
 {
     NES_Console::INIT();
@@ -1649,6 +1840,7 @@ int main()
     TestNameTableViewerUsesChrStateOfDrawnRow();
     TestSpriteAndPatternViewersUseFrameChrState();
     TestControllerReadProtocol();
+    TestSecondControllerReadProtocol();
     TestMidFrameAddressLoadSplitsTheScreen();
     TestIrqDispatchDoesNotStallIndefinitely();
     TestPPUAddressOverflow();
@@ -1671,6 +1863,14 @@ int main()
     TestBranchCycleCounting();
     TestPageCrossOnlyAppliesToReadInstructions();
     TestOAMDMAStallsCPU();
+
+    TestApuMixerIsNonLinear();
+    TestApuPulseFrequency();
+    TestApuTriangleFrequency();
+    TestApuNoiseTimer();
+    TestApuDmcRate();
+    TestApuFiveStepFrameCounter();
+    TestApuSampleStreamHasRightPitch();
 
     TestMapperSkipsUnchangedBankWindows(); // last: it installs a mapper over the whole $8000-$FFFF area
 

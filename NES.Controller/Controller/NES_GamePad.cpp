@@ -29,6 +29,7 @@ namespace NES
     InputFlags NES_GamePad::input4016;
     OutputFlags NES_GamePad::output4016;
     int NES_GamePad::P1BID = 0;
+    int NES_GamePad::P2BID = 0;
     bool NES_GamePad::strobeHigh = false;
 
     NES_GamePad::NES_GamePad()
@@ -62,7 +63,7 @@ namespace NES
             // it falls always starts at the first button (A) -
             // http://wiki.nesdev.com/w/index.php/Controller_reading
             if (strobeHigh)
-                P1BID = 0;
+                P1BID = P2BID = 0; // one strobe line reloads both controllers' shift registers
         });
     }
 
@@ -71,9 +72,10 @@ namespace NES
         output4016.address = NES_Memory::Memory[0x4016];
         output4016.address->BeforGet([]() { getButton(); });
         output4016.address->AfterGet([]() { output4016.address->value(0); });
-        // Player 2 has no buttons wired: reads $4017 as open bus only.
+        // Controller 2 is read at $4017 (writes to it go to the APU frame counter, see NES_APU_Register.cpp).
         auto p2 = NES_Memory::Memory[0x4017];
         p2->value(0x40);
+        p2->BeforGet([]() { getButton2(); });
         p2->AfterGet([p2]() { p2->value(0x40); });
     }
 
@@ -131,22 +133,32 @@ namespace NES
     // updated only by real writes to $4016 (InitInput4016()'s AfterSet
     // hook), so a later read can never clobber what the CPU actually last
     // wrote.
-    void NES_GamePad::getButton()
+    bool NES_GamePad::ShiftOut(Controller& pad, int& index)
     {
         if (strobeHigh)
-            P1BID = 0;
+            index = 0; // strobe high: the register keeps reloading, so button A is reported again and again
+        // After all 8 buttons have been shifted out a standard controller returns 1 on every further read.
+        // http://wiki.nesdev.com/w/index.php/Controller_reading
+        bool bit = (index > 7) ? true : pad.Button[static_cast<size_t>(index)].second;
+        if (!strobeHigh && index <= 7)
+            ++index;
+        return bit;
+    }
+
+    void NES_GamePad::getButton()
+    {
         if (NES_GETENV("NES_TRACE_PAD"))
             std::cerr << "[pad] idx=" << P1BID << " strobe=" << strobeHigh << std::endl;
-        // After all 8 buttons have been shifted out a standard controller
-        // returns 1 on every further read.
-        // http://wiki.nesdev.com/w/index.php/Controller_reading
-        bool bit = (P1BID > 7) ? true : Player1.Button[static_cast<size_t>(P1BID)].second;
-        output4016.SerialControllerData(bit);
+        output4016.SerialControllerData(ShiftOut(Player1, P1BID));
         // Bits 7-5 of a $4016/$4017 read are open bus: the CPU data bus still
         // holds the high byte of the address just read ($40), so bit 6 reads
         // back as 1 - http://wiki.nesdev.com/w/index.php/Open_bus_behavior
         output4016.OpenBus(0x40);
-        if (!strobeHigh && P1BID <= 7)
-            ++P1BID;
+    }
+
+    void NES_GamePad::getButton2()
+    {
+        auto cell = NES_Memory::Memory[0x4017];
+        cell->value(static_cast<uint8_t>(0x40 | (ShiftOut(Player2, P2BID) ? 1 : 0)));
     }
 }
