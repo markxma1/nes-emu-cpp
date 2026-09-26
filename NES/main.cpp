@@ -314,7 +314,12 @@ namespace
         char buf[256];
         while (fgets(buf, sizeof(buf), pipe))
             output += buf;
-        pclose(pipe);
+        const int status = pclose(pipe);
+        // hyprctl exists but Hyprland is not running (another desktop, a terminal without the session
+        // variables, ...): the answer is an error text, not a window description. That must not mean
+        // "not focused" - then no key would ever reach the game. Only a real answer can say "not focused".
+        if (status != 0 || output.find("\"pid\"") == std::string::npos)
+            return cachedFocused = true;
 
         const std::string pidNeedle = "\"pid\": " + std::to_string(static_cast<long>(getpid()));
         cachedFocused = output.find(pidNeedle) != std::string::npos;
@@ -1920,6 +1925,8 @@ int main(int argc, char** argv)
         // longer reaches this emulator at all (gameplay buttons *or* the
         // N/P/O/C/V/L/M/Esc debug hotkeys).
         bool focused = WindowHasFocus();
+        if (NES_GETENV("NES_TRACE_INPUT") && uiFrame % 60 == 0)
+            std::cerr << "[NES_TRACE_INPUT] window has focus (buttons are applied): " << focused << std::endl;
 
         int rawKey;
         {
