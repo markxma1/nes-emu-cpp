@@ -12,6 +12,9 @@ How it fits together:
   3. Save. The tile pictures are written to `tiles/<hash>.png`. A running emulator picks them up within
      half a second - you see your edit in the game.
 
+Tiles that belong together (a 2x2 ship, a big enemy) can be made into a group with ONE picture (Frame tab:
+'Auto-group sprites' or 'Select tiles' + 'Group selected'); see EFFECTS.md.
+
 The tile picture is the tile in its original (unflipped) orientation, any size that is a multiple of 8
 (default 32x32 = 4 times the NES resolution), with transparency. Transparent pixels keep the original.
 Needs Python 3 + tkinter + Pillow (sudo pacman -S tk python-pillow).
@@ -93,11 +96,17 @@ def find_skin_key(skins, hash_name, sprite, palette):
     return None
 
 
-def compose(capture, skins, scale):
+def compose(capture, skins, scale, objects=None):
     """What the emulator shows for this capture with these skins: an RGB picture of 256*scale x 240*scale."""
     out = capture.image.resize((256 * scale, 240 * scale), Image.NEAREST).convert("RGBA")
+    matches = match_objects(capture, objects) if objects else []
+    in_object = {i for m in matches for i in m.members}
+    for m in matches:
+        paint_object_match(out, capture, m, scale)
     order = [i for i, c in enumerate(capture.cells) if not c["s"]] + [i for i, c in enumerate(capture.cells) if c["s"]]
     for i in order:
+        if i in in_object:
+            continue
         cell = capture.cells[i]
         key = find_skin_key(skins, cell["hash"], cell["s"], cell["pal"])
         if key is None:
@@ -133,6 +142,252 @@ def cell_at(capture, nes_x, nes_y):
             if 0 <= lx < 8 and 0 <= ly < 8 and (lx, ly) in capture.visible(i):
                 return i, lx, ly
     return None
+
+
+# ---------------------------------------------------------------------------------------------
+# Objects: groups of tiles with one picture (same rules as HdLayer::PaintObjects in C++)
+# ---------------------------------------------------------------------------------------------
+
+class Obj:
+    """A group of tiles found together (a 2x2 ship, a big enemy) with one picture for all of them."""
+
+    def __init__(self, name, layer, width, height, tiles, picture, margin=0, overflow=False):
+        self.name, self.layer, self.width, self.height = name, layer, width, height
+        self.tiles = tiles            # list of dicts: dx, dy, hash, fh, fv (as they were seen when the group was made)
+        self.picture = picture        # RGBA, (width+2*margin)*k x (height+2*margin)*k
+        self.margin, self.overflow = margin, overflow
+
+    @property
+    def k(self):
+        return self.picture.width // (self.width + 2 * self.margin)
+
+    def to_text(self):
+        lines = ["layer " + self.layer, "size %d %d" % (self.width, self.height), "margin %d" % self.margin,
+                 "overflow %d" % (1 if self.overflow else 0)]
+        for t in self.tiles:
+            lines.append("tile %d %d %s %d %d" % (t["dx"], t["dy"], t["hash"], t["fh"], t["fv"]))
+        return "\n".join(lines) + "\n"
+
+
+def parse_object(name, text, picture):
+    layer, size, margin, overflow, tiles = "s", None, 0, False, []
+    for line in text.splitlines():
+        parts = line.split()
+        if not parts or parts[0].startswith("#"):
+            continue
+        if parts[0] == "layer":
+            layer = parts[1]
+        elif parts[0] == "size":
+            size = (int(parts[1]), int(parts[2]))
+        elif parts[0] == "margin":
+            margin = int(parts[1])
+        elif parts[0] == "overflow":
+            overflow = parts[1] != "0"
+        elif parts[0] == "tile":
+            tiles.append({"dx": int(parts[1]), "dy": int(parts[2]), "hash": parts[3], "fh": int(parts[4]), "fv": int(parts[5])})
+    if size is None or not tiles:
+        raise ValueError("bad object file")
+    return Obj(name, layer, size[0], size[1], tiles, picture, margin, overflow)
+
+
+def load_objects(pack_dir):
+    result = {}
+    for path in sorted(glob.glob(os.path.join(pack_dir, "objects", "*.obj"))):
+        name = os.path.splitext(os.path.basename(path))[0]
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            picture = Image.open(os.path.join(pack_dir, "objects", name + ".png")).convert("RGBA")
+            result[name] = parse_object(name, text, picture)
+        except (OSError, ValueError, IndexError):
+            continue
+    return result
+
+
+def save_object(pack_dir, obj):
+    """Writes objects/<name>.png and .obj atomically (the emulator notices the folder change)."""
+    folder = os.path.join(pack_dir, "objects")
+    os.makedirs(folder, exist_ok=True)
+    tmp_png = os.path.join(folder, "." + obj.name + ".tmp.png")
+    obj.picture.save(tmp_png)
+    os.replace(tmp_png, os.path.join(folder, obj.name + ".png"))
+    tmp = os.path.join(folder, "." + obj.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(obj.to_text())
+    os.replace(tmp, os.path.join(folder, obj.name + ".obj"))
+
+
+def delete_object(pack_dir, name):
+    for ext in (".obj", ".png"):
+        try:
+            os.remove(os.path.join(pack_dir, "objects", name + ext))
+        except OSError:
+            pass
+
+
+class Match:
+    def __init__(self, obj, members, ox, oy, fh, fv):
+        self.obj, self.members, self.ox, self.oy, self.fh, self.fv = obj, members, ox, oy, fh, fv
+
+
+def match_objects(capture, objects):
+    """Every place in the capture where all tiles of an object are present (each cell belongs to one match)."""
+    cells = capture.cells
+    at = {}
+    for i, c in enumerate(cells):
+        at.setdefault((c["s"], c["x"], c["y"]), []).append(i)
+    consumed = set()
+    matches = []
+    for obj in objects.values():
+        sprite = 1 if obj.layer == "s" else 0
+        anchor = obj.tiles[0]
+        for first, a in enumerate(cells):
+            if first in consumed or a["s"] != sprite or a["hash"] != anchor["hash"]:
+                continue
+            for variant in range(4):
+                fh, fv = variant & 1, (variant >> 1) & 1
+                if a["fh"] != (anchor["fh"] ^ fh) or a["fv"] != (anchor["fv"] ^ fv):
+                    continue
+                ox = a["x"] - (obj.width - 8 - anchor["dx"] if fh else anchor["dx"])
+                oy = a["y"] - (obj.height - 8 - anchor["dy"] if fv else anchor["dy"])
+                members = []
+                for t in obj.tiles:
+                    x = ox + (obj.width - 8 - t["dx"] if fh else t["dx"])
+                    y = oy + (obj.height - 8 - t["dy"] if fv else t["dy"])
+                    found = None
+                    for i in at.get((sprite, x, y), []):
+                        c = cells[i]
+                        if i not in consumed and i not in members and c["hash"] == t["hash"] \
+                                and c["fh"] == (t["fh"] ^ fh) and c["fv"] == (t["fv"] ^ fv):
+                            found = i
+                            break
+                    if found is None:
+                        break
+                    members.append(found)
+                else:
+                    consumed.update(members)
+                    matches.append(Match(obj, members, ox, oy, fh, fv))
+                    break
+    return matches
+
+
+def object_pixels(capture, match):
+    """NES pixels (absolute x, y) where the object's picture is painted: the visible pixels of its tiles,
+    or the whole area including the margin when the object has overflow."""
+    obj = match.obj
+    if obj.overflow:
+        m = obj.margin
+        return {(match.ox + x, match.oy + y) for y in range(-m, obj.height + m) for x in range(-m, obj.width + m)}
+    out = set()
+    for i in match.members:
+        c = capture.cells[i]
+        for (x, y) in capture.visible(i):
+            out.add((c["x"] + x, c["y"] + y))
+    return out
+
+
+def paint_object_match(out, capture, match, scale):
+    """Paints one matched object onto the composed picture `out` (RGBA, 256*scale x 240*scale)."""
+    obj = match.obj
+    pw, ph = (obj.width + 2 * obj.margin) * scale, (obj.height + 2 * obj.margin) * scale
+    pic = obj.picture.resize((pw, ph), Image.BICUBIC if obj.picture.width < pw else Image.BOX)
+    if match.fh:
+        pic = pic.transpose(Image.FLIP_LEFT_RIGHT)
+    if match.fv:
+        pic = pic.transpose(Image.FLIP_TOP_BOTTOM)
+    mask = Image.new("L", (pw, ph), 0)
+    for (x, y) in object_pixels(capture, match):
+        lx, ly = x - match.ox + obj.margin, y - match.oy + obj.margin
+        if 0 <= lx < obj.width + 2 * obj.margin and 0 <= ly < obj.height + 2 * obj.margin:
+            mask.paste(255, (lx * scale, ly * scale, (lx + 1) * scale, (ly + 1) * scale))
+    alpha = ImageChops.multiply(pic.getchannel("A"), mask)
+    out.paste(pic, ((match.ox - obj.margin) * scale, (match.oy - obj.margin) * scale), alpha)
+
+
+def object_from_cells(capture, indices, scale, name, margin=0, overflow=False):
+    """Makes an object out of the chosen captured cells (all of one layer). Its picture starts as the original
+    pixels enlarged, so nothing changes until it is painted."""
+    cells = [capture.cells[i] for i in indices]
+    if not cells:
+        raise ValueError("nothing selected")
+    if len({c["s"] for c in cells}) != 1:
+        raise ValueError("a group must be all sprites or all background")
+    minx, miny = min(c["x"] for c in cells), min(c["y"] for c in cells)
+    maxx, maxy = max(c["x"] for c in cells) + 8, max(c["y"] for c in cells) + 8
+    width, height = maxx - minx, maxy - miny
+    m = margin if overflow else 0
+    pic = Image.new("RGBA", ((width + 2 * m) * scale, (height + 2 * m) * scale), (0, 0, 0, 0))
+    tiles = []
+    for c in cells:
+        tiles.append({"dx": c["x"] - minx, "dy": c["y"] - miny, "hash": c["hash"], "fh": c["fh"], "fv": c["fv"]})
+        img = tile_rgba(bytes.fromhex(c["bytes"]), c["rgb"], c["s"], scale, bool(c["fh"]), bool(c["fv"]))
+        pic.paste(img, ((c["x"] - minx + m) * scale, (c["y"] - miny + m) * scale), img)
+    if len({(t["dx"], t["dy"]) for t in tiles}) != len(tiles):
+        raise ValueError("two selected tiles lie on top of each other; select one layer of tiles only")
+    return Obj(name, "s" if cells[0]["s"] else "b", width, height, tiles, pic, m, overflow)
+
+
+def auto_group(capture, same_palette=True):
+    """Suggests groups: sprite cells that touch each other (also at the corners) form one group. Returns lists of cell
+    indices of groups with at least two tiles, one per distinct shape."""
+    idx = [i for i, c in enumerate(capture.cells) if c["s"]]
+    parent = {i: i for i in idx}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a in idx:
+        for b in idx:
+            if a < b:
+                ca, cb = capture.cells[a], capture.cells[b]
+                if abs(ca["x"] - cb["x"]) <= 8 and abs(ca["y"] - cb["y"]) <= 8 and (not same_palette or ca["pal"] == cb["pal"]):
+                    parent[find(a)] = find(b)
+    groups = {}
+    for i in idx:
+        groups.setdefault(find(i), []).append(i)
+    seen, result = set(), []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        minx = min(capture.cells[i]["x"] for i in members)
+        miny = min(capture.cells[i]["y"] for i in members)
+        width = max(capture.cells[i]["x"] for i in members) - minx + 8
+        height = max(capture.cells[i]["y"] for i in members) - miny + 8
+
+        def signature(fh, fv):
+            return frozenset((width - 8 - (capture.cells[i]["x"] - minx) if fh else capture.cells[i]["x"] - minx,
+                              height - 8 - (capture.cells[i]["y"] - miny) if fv else capture.cells[i]["y"] - miny,
+                              capture.cells[i]["hash"], capture.cells[i]["fh"] ^ fh, capture.cells[i]["fv"] ^ fv) for i in members)
+
+        variants = [signature(fh, fv) for fh in (0, 1) for fv in (0, 1)]
+        if not any(v in seen for v in variants):  # the same shape mirrored counts as the same group
+            seen.add(variants[0])
+            result.append(sorted(members))
+    return result
+
+
+def match_at(capture, matches, nes_x, nes_y):
+    """The object match whose picture is painted at NES pixel (x, y), or None."""
+    for m in matches:
+        if (nes_x, nes_y) in object_pixels(capture, m):
+            return m
+    return None
+
+
+def picture_position(match, nes_x, nes_y, sub_x, sub_y):
+    """Position inside the object's own picture (unflipped) for a click at NES pixel + sub-pixel fraction (0..1)."""
+    obj = match.obj
+    lx, ly = nes_x - match.ox + obj.margin, nes_y - match.oy + obj.margin
+    w, h = obj.width + 2 * obj.margin, obj.height + 2 * obj.margin
+    if match.fh:
+        lx, sub_x = w - 1 - lx, 1 - sub_x
+    if match.fv:
+        ly, sub_y = h - 1 - ly, 1 - sub_y
+    k = obj.k
+    return min(int((lx + sub_x) * k), w * k - 1), min(int((ly + sub_y) * k), h * k - 1)
 
 
 def collect_tiles(captures):
@@ -260,6 +515,8 @@ def run_ui(pack_dir):
     captures = load_captures(pack_dir)
     tiles = collect_tiles(captures)
     skins = load_skins(pack_dir)          # as saved on disk
+    objects = load_objects(pack_dir)      # groups of tiles with one picture, as saved on disk
+    selection = set()                     # cell indices selected in the Frame tab (to be grouped)
     work = {}                             # stem -> edited picture (not yet saved)
     undo = []                             # (stem, previous picture or None)
     state = {"hash": None, "tool": "pencil", "colour": (255, 255, 255), "size": 1, "scale": 4,
@@ -273,11 +530,17 @@ def run_ui(pack_dir):
     scale_var = tk.IntVar(value=state["scale"])
     only_var = tk.StringVar(value="all")
     variant_var = tk.IntVar(value=0)
+    overflow_var = tk.IntVar(value=0)
     status = tk.StringVar(value="Pick a tile on the left, or click the picture in the Frame tab.")
 
     # ---------- helpers ----------
+    def is_object(h):
+        return h is not None and h.startswith("obj:")
+
     def stem_for(h):
         """File stem the edit of tile h is saved under (palette variant or general)."""
+        if is_object(h):
+            return h
         if variant_var.get() and state["pal_key"]:
             kind, pal = state["pal_key"]
             return "%s_%s%d" % (h, kind, pal)
@@ -287,6 +550,14 @@ def run_ui(pack_dir):
         stem = stem_for(h)
         if stem in work:
             return work[stem]
+        if is_object(h):
+            obj = objects.get(h[4:])
+            if obj is None:
+                return None
+            if create:
+                work[stem] = obj.picture.copy()
+                return work[stem]
+            return obj.picture
         base = skins.get(stem) or (skins.get(h) if not variant_var.get() else None)
         size = 8 * scale_var.get()
         if base is not None:
@@ -305,9 +576,20 @@ def run_ui(pack_dir):
         del undo[:-60]
 
     def all_skins():
-        merged = dict(skins)
-        merged.update(work)
+        merged = {k: v for k, v in skins.items()}
+        merged.update({k: v for k, v in work.items() if not k.startswith("obj:")})
         return merged
+
+    def objects_view():
+        """The objects with their unsaved pictures, for the preview."""
+        view = {}
+        for name, obj in objects.items():
+            edited = work.get("obj:" + name)
+            if edited is None:
+                view[name] = obj
+            else:
+                view[name] = Obj(obj.name, obj.layer, obj.width, obj.height, obj.tiles, edited, obj.margin, obj.overflow)
+        return view
 
     def dirty():
         return bool(work)
@@ -340,6 +622,11 @@ def run_ui(pack_dir):
         listbox.delete(0, "end")
         order.clear()
         merged = all_skins()
+        for name in sorted(objects):
+            layer_ok = only_var.get() in ("all", "skin") or only_var.get() == objects[name].layer
+            if layer_ok and only_var.get() != "new":
+                order.append("obj:" + name)
+                listbox.insert("end", "%s [group] %s  %dx%d" % ("*" if "obj:" + name in work else "\u2713", name, objects[name].width, objects[name].height))
         for h in sorted(tiles, key=lambda k: -sum(tiles[k]["uses"].values())):
             kinds = {k for k, _ in tiles[h]["uses"]}
             has = any(k.startswith(h) for k in merged)
@@ -357,6 +644,8 @@ def run_ui(pack_dir):
     def select_hash(h):
         state["hash"] = h
         state["pal_key"] = default_colours(tiles[h])[0] if h in tiles else None
+        if is_object(h):
+            overflow_var.set(1 if objects[h[4:]].overflow else 0)
         redraw_tile()
         if h in order:
             i = order.index(h)
@@ -417,7 +706,11 @@ def run_ui(pack_dir):
         h = state["hash"]
         if not h:
             return
-        t = tiles.get(h)
+        t = None if is_object(h) else tiles.get(h)
+        if is_object(h) and h[4:] in objects:
+            o = objects[h[4:]]
+            ttk.Label(swatches, text="group of %d tiles, %dx%d pixels, picture %dx%d" % (len(o.tiles), o.width, o.height, o.picture.width, o.picture.height)).pack(side="left")
+            ttk.Checkbutton(swatches, text="overflow (paint beyond the tiles)", variable=overflow_var, command=toggle_overflow).pack(side="left", padx=8)
         if t:
             ttk.Label(swatches, text="colours of the game:").pack(side="left")
             key = state["pal_key"] or default_colours(t)[0]
@@ -431,7 +724,7 @@ def run_ui(pack_dir):
             canvas.create_text(256, 256, fill="#aaa", text="No skin yet.\nClick 'Start from original' or 'Import PNG'.")
             preview.configure(image="")
             return
-        z = 512 // img.width
+        z = max(1, 512 // max(img.width, img.height))
         bg = Image.new("RGBA", img.size, (48, 48, 48, 255))
         for y in range(0, img.height, 8):
             for x in range(0, img.width, 8):
@@ -450,6 +743,13 @@ def run_ui(pack_dir):
             strip.paste(v, (n * (img.width + 10), 0), v)
         tile_photo["prev"] = ImageTk.PhotoImage(strip)
         preview.configure(image=tile_photo["prev"])
+
+    def toggle_overflow():
+        h = state["hash"]
+        if is_object(h) and h[4:] in objects:
+            objects[h[4:]].overflow = bool(overflow_var.get())
+            save_object(pack_dir, objects[h[4:]])
+            redraw_frame()
 
     def apply_tool(img, stem, x, y, first):
         t = tool.get()
@@ -473,7 +773,7 @@ def run_ui(pack_dir):
         img = current_image(h)
         if img is None:
             return
-        z = 512 // img.width
+        z = max(1, 512 // max(img.width, img.height))
         x, y = event.x // z, event.y // z
         if not (0 <= x < img.width and 0 <= y < img.height):
             return
@@ -496,6 +796,9 @@ def run_ui(pack_dir):
 
     def start_from_original():
         h = state["hash"]
+        if is_object(h):
+            status.set("For a group: delete it and group the tiles again to start over.")
+            return
         if h in tiles:
             stem = stem_for(h)
             push_undo(stem)
@@ -527,6 +830,16 @@ def run_ui(pack_dir):
         h = state["hash"]
         if not h:
             return
+        if is_object(h):
+            if messagebox.askyesno("Delete group", "Delete this group and its picture? (the tiles keep their own skins)"):
+                work.pop(h, None)
+                delete_object(pack_dir, h[4:])
+                objects.pop(h[4:], None)
+                state["hash"] = None
+                redraw_tile()
+                redraw_frame()
+                fill_list()
+            return
         stem = stem_for(h)
         push_undo(stem)
         work.pop(stem, None)
@@ -550,6 +863,11 @@ def run_ui(pack_dir):
 
     def save_all():
         for stem, img in list(work.items()):
+            if stem.startswith("obj:"):
+                obj = objects[stem[4:]]
+                obj.picture = img.copy()
+                save_object(pack_dir, obj)
+                continue
             save_skin(pack_dir, stem, img)
             skins[stem] = img.copy()
         work.clear()
@@ -573,7 +891,11 @@ def run_ui(pack_dir):
     zoom_box = ttk.Combobox(fbar, state="readonly", width=4, values=["2", "3", "4"])
     zoom_box.set("3")
     zoom_box.pack(side="left")
-    ttk.Label(fbar, text="  the tools and colour of the Tile tab are used").pack(side="left")
+    mode_var = tk.StringVar(value="paint")
+    ttk.Radiobutton(fbar, text="Paint", variable=mode_var, value="paint").pack(side="left", padx=(12, 2))
+    ttk.Radiobutton(fbar, text="Select tiles (drag a rectangle)", variable=mode_var, value="select").pack(side="left", padx=2)
+    ttk.Button(fbar, text="Group selected", command=lambda: group_selected()).pack(side="left", padx=4)
+    ttk.Button(fbar, text="Auto-group sprites", command=lambda: do_auto_group()).pack(side="left", padx=2)
     fcanvas = tk.Canvas(frame_tab, bg="#202020", highlightthickness=0)
     fcanvas.pack(fill="both", expand=True, pady=4)
     fphoto = {}
@@ -585,20 +907,117 @@ def run_ui(pack_dir):
             return
         cap = captures[state["capture"]]
         scale = scale_var.get()
-        img = compose(cap, all_skins(), scale)
+        img = compose(cap, all_skins(), scale, objects_view())
         z = int(zoom_box.get())
         f = z / scale
         shown = img.resize((int(img.width * f), int(img.height * f)), Image.NEAREST if f >= 1 else Image.BOX)
         fphoto["img"] = ImageTk.PhotoImage(shown)
         fcanvas.delete("all")
         fcanvas.create_image(0, 0, anchor="nw", image=fphoto["img"])
+        for m in match_objects(cap, objects_view()):      # thin outline around every found group
+            c0 = [cap.cells[i] for i in m.members]
+            fcanvas.create_rectangle(min(c["x"] for c in c0) * z, min(c["y"] for c in c0) * z,
+                                     (max(c["x"] for c in c0) + 8) * z, (max(c["y"] for c in c0) + 8) * z, outline="#40ff40")
+        for i in selection:
+            c = cap.cells[i]
+            fcanvas.create_rectangle(c["x"] * z, c["y"] * z, (c["x"] + 8) * z, (c["y"] + 8) * z, outline="#ffff00", width=2)
+
+    drag = {}
+
+    def cells_in_rect(cap, x0, y0, x1, y1):
+        found = set()
+        for i, c in enumerate(cap.cells):
+            for (px, py) in cap.visible(i):
+                if x0 <= c["x"] + px <= x1 and y0 <= c["y"] + py <= y1:
+                    found.add(i)
+                    break
+        return found
+
+    def on_select_mouse(event, phase):
+        cap = captures[state["capture"]]
+        z = int(zoom_box.get())
+        if phase == "down":
+            drag["start"] = (event.x, event.y)
+            selection.clear()
+        if "start" not in drag:
+            return
+        x0, y0 = drag["start"]
+        fcanvas.delete("drag")
+        fcanvas.create_rectangle(x0, y0, event.x, event.y, outline="#ffff00", dash=(3, 3), tags="drag")
+        if phase == "up":
+            selection.update(cells_in_rect(cap, min(x0, event.x) // z, min(y0, event.y) // z, max(x0, event.x) // z, max(y0, event.y) // z))
+            drag.clear()
+            status.set("%d tiles selected. Click 'Group selected' to make one object of them." % len(selection))
+            redraw_frame()
+
+    def group_selected():
+        if not captures or not selection:
+            status.set("Nothing selected: switch to 'Select tiles' and drag a rectangle around the tiles of one object.")
+            return
+        cap = captures[state["capture"]]
+        from tkinter import simpledialog
+        first = sorted(selection)[0]
+        name = simpledialog.askstring("New group", "Name of the group:", initialvalue="obj_" + cap.cells[first]["hash"][:6], parent=root)
+        if not name:
+            return
+        name = "".join(ch for ch in name if ch.isalnum() or ch in "_-") or "obj"
+        overflow = messagebox.askyesno("Overflow", "Let the picture extend beyond the tiles' own pixels (bigger glow/outline)?\n\nNo = the picture only replaces the visible pixels of the tiles.")
+        margin = simpledialog.askinteger("Margin", "Extra NES pixels of picture on every side (0-16):", initialvalue=4, minvalue=0, maxvalue=16, parent=root) if overflow else 0
+        try:
+            obj = object_from_cells(cap, sorted(selection), scale_var.get(), name, margin or 0, overflow)
+        except ValueError as e:
+            messagebox.showerror("Cannot group", str(e))
+            return
+        objects[name] = obj
+        save_object(pack_dir, obj)
+        selection.clear()
+        fill_list()
+        select_hash("obj:" + name)
+        status.set("Group '%s' made (%d tiles). Paint it in the Tile tab or on the picture; the game already uses it." % (name, len(obj.tiles)))
+        redraw_frame()
+
+    def do_auto_group():
+        if not captures:
+            return
+        cap = captures[state["capture"]]
+        known = {i for m in match_objects(cap, objects_view()) for i in m.members}
+        made = 0
+        for members in auto_group(cap):
+            if all(i in known for i in members):
+                continue
+            name = "auto_%s_%d" % (cap.cells[members[0]]["hash"][:6], len(objects))
+            try:
+                obj = object_from_cells(cap, members, scale_var.get(), name)
+            except ValueError:
+                continue
+            objects[name] = obj
+            save_object(pack_dir, obj)
+            made += 1
+        fill_list()
+        redraw_frame()
+        status.set("Auto-group made %d groups (touching sprite tiles of one palette). Check them in the Frame tab (green outline); "
+                   "wrong ones can be deleted, or select tiles by hand." % made)
 
     def on_frame_mouse(event, first):
         if not captures:
             return
+        if mode_var.get() == "select":
+            return
         cap = captures[state["capture"]]
         z = int(zoom_box.get())
         nes_x, nes_y = event.x // z, event.y // z
+        matches = match_objects(cap, objects_view())
+        hit_match = match_at(cap, matches, nes_x, nes_y)
+        if hit_match is not None:
+            key = "obj:" + hit_match.obj.name
+            if key != state["hash"]:
+                select_hash(key)
+            img = current_image(key)
+            px, py = picture_position(hit_match, nes_x, nes_y, (event.x % z) / z, (event.y % z) / z)
+            if apply_tool(img, key, px, py, first):
+                redraw_frame()
+                fill_list_keep()
+            return
         hit = cell_at(cap, nes_x, nes_y)
         if not hit:
             return
@@ -619,8 +1038,15 @@ def run_ui(pack_dir):
             redraw_frame()
             fill_list_keep()
 
-    fcanvas.bind("<Button-1>", lambda e: on_frame_mouse(e, True))
-    fcanvas.bind("<B1-Motion>", lambda e: on_frame_mouse(e, False))
+    def frame_down(e):
+        on_select_mouse(e, "down") if mode_var.get() == "select" else on_frame_mouse(e, True)
+
+    def frame_move(e):
+        on_select_mouse(e, "move") if mode_var.get() == "select" else on_frame_mouse(e, False)
+
+    fcanvas.bind("<Button-1>", frame_down)
+    fcanvas.bind("<B1-Motion>", frame_move)
+    fcanvas.bind("<ButtonRelease-1>", lambda e: on_select_mouse(e, "up") if mode_var.get() == "select" else None)
 
     def fill_captures():
         cap_box.configure(values=["frame %d (%d tiles)" % (c.frame_number, len(c.cells)) for c in captures])

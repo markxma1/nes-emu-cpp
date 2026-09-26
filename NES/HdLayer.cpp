@@ -36,9 +36,12 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <mutex>
+#include <tuple>
 #include <sys/stat.h>
 #include <unordered_map>
+#include <map>
 
 namespace NES
 {
@@ -63,7 +66,11 @@ namespace NES
         std::string packDir;
         std::unordered_map<std::string, cv::Mat> skins;        // file stem -> BGRA picture as stored
         std::unordered_map<std::string, cv::Mat> scaledSkins;  // "<stem>@<scale>" -> resized to 8*scale
+        std::vector<HdObject> objects;                         // groups of tiles with one picture
         long long packStamp = -1;
+
+        long long DirStamp(const std::string& dir);
+        long long PackStamp() { return DirStamp((fs::path(packDir) / "tiles").string()) ^ (DirStamp((fs::path(packDir) / "objects").string()) * 31); }
 
         long long DirStamp(const std::string& dir)
         {
@@ -77,6 +84,7 @@ namespace NES
         {
             skins.clear();
             scaledSkins.clear();
+            objects.clear();
             std::error_code ec;
             const fs::path tiles = fs::path(packDir) / "tiles";
             for (auto it = fs::directory_iterator(tiles, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
@@ -95,7 +103,28 @@ namespace NES
                     cv::cvtColor(img, img, cv::COLOR_GRAY2BGRA);
                 skins[it->path().stem().string()] = img;
             }
-            packStamp = DirStamp(tiles.string());
+            const fs::path objectDir = fs::path(packDir) / "objects";
+            for (auto it = fs::directory_iterator(objectDir, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+            {
+                if (it->path().extension() != ".obj")
+                    continue;
+                std::ifstream in(it->path());
+                std::stringstream text;
+                text << in.rdbuf();
+                HdObject object;
+                object.name = it->path().stem().string();
+                cv::Mat picture = cv::imread((objectDir / (object.name + ".png")).string(), cv::IMREAD_UNCHANGED);
+                if (picture.empty() || !HdLayer::ParseObject(text.str(), object))
+                {
+                    std::cerr << "[skins] ignoring object " << object.name << " (bad .obj or missing .png)" << std::endl;
+                    continue;
+                }
+                if (picture.channels() == 3)
+                    cv::cvtColor(picture, picture, cv::COLOR_BGR2BGRA);
+                object.picture = picture;
+                objects.push_back(std::move(object));
+            }
+            packStamp = PackStamp();
         }
 
         /// Skin picture for a cell at the given output scale, or an empty Mat.
@@ -241,6 +270,151 @@ namespace NES
         }
     }
 
+    bool HdLayer::ParseObject(const std::string& text, HdObject& out)
+    {
+        std::istringstream in(text);
+        std::string line;
+        bool haveSize = false;
+        out.tiles.clear();
+        while (std::getline(in, line))
+        {
+            std::istringstream ls(line);
+            std::string key;
+            if (!(ls >> key) || key[0] == '#')
+                continue;
+            if (key == "layer") { std::string v; ls >> v; out.sprite = v != "b"; }
+            else if (key == "size") { haveSize = static_cast<bool>(ls >> out.width >> out.height); }
+            else if (key == "margin") ls >> out.margin;
+            else if (key == "overflow") { int v = 0; ls >> v; out.overflow = v != 0; }
+            else if (key == "tile")
+            {
+                HdObject::Tile t;
+                std::string hash;
+                int fh = 0, fv = 0;
+                if (!(ls >> t.dx >> t.dy >> hash >> fh >> fv))
+                    return false;
+                try { t.hash = std::stoull(hash, nullptr, 16); } catch (...) { return false; }
+                t.flipH = fh != 0;
+                t.flipV = fv != 0;
+                out.tiles.push_back(t);
+            }
+        }
+        return haveSize && out.width > 0 && out.height > 0 && out.margin >= 0 && !out.tiles.empty();
+    }
+
+    int HdLayer::PaintObjects(cv::Mat& hd, int scale, const std::vector<HdCell>& cells,
+                              const std::vector<HdObject>& objects, std::vector<char>& consumed)
+    {
+        // where is which cell: (layer, x, y) -> index; several cells can share a position (sprites on top of each
+        // other), so keep all
+        std::multimap<std::tuple<bool, int, int>, size_t> at;
+        for (size_t i = 0; i < cells.size(); i++)
+            at.emplace(std::make_tuple(cells[i].sprite, cells[i].x, cells[i].y), i);
+
+        int painted = 0;
+        for (const HdObject& object : objects)
+        {
+            if (object.tiles.empty() || object.picture.empty())
+                continue;
+            const HdObject::Tile& anchor = object.tiles[0];
+            for (size_t first = 0; first < cells.size(); first++)
+            {
+                const HdCell& a = cells[first];
+                if (consumed[first] || a.sprite != object.sprite || a.hash != anchor.hash)
+                    continue;
+                for (int variant = 0; variant < 4; variant++)
+                {
+                    const bool fh = variant & 1, fv = variant & 2;
+                    if (a.flipH != (anchor.flipH != fh) || a.flipV != (anchor.flipV != fv))
+                        continue;
+                    // top-left of the group in this orientation
+                    const int ox = a.x - (fh ? object.width - 8 - anchor.dx : anchor.dx);
+                    const int oy = a.y - (fv ? object.height - 8 - anchor.dy : anchor.dy);
+                    std::vector<size_t> members;
+                    bool all = true;
+                    for (const HdObject::Tile& t : object.tiles)
+                    {
+                        const int x = ox + (fh ? object.width - 8 - t.dx : t.dx);
+                        const int y = oy + (fv ? object.height - 8 - t.dy : t.dy);
+                        auto range = at.equal_range(std::make_tuple(object.sprite, x, y));
+                        bool found = false;
+                        for (auto it = range.first; it != range.second && !found; ++it)
+                        {
+                            const size_t i = it->second;
+                            if (!consumed[i] && cells[i].hash == t.hash && cells[i].flipH == (t.flipH != fh) && cells[i].flipV == (t.flipV != fv))
+                            {
+                                members.push_back(i);
+                                found = true;
+                            }
+                        }
+                        if (!found) { all = false; break; }
+                    }
+                    if (!all)
+                        continue;
+
+                    // paint: the picture (flipped like the group) covers the group's pixels, or with overflow the margin too
+                    const int m = object.overflow ? object.margin : 0;
+                    const int pw = (object.width + 2 * object.margin) * scale, ph = (object.height + 2 * object.margin) * scale;
+                    cv::Mat pic;
+                    cv::resize(object.picture, pic, cv::Size(pw, ph), 0, 0, object.picture.cols > pw ? cv::INTER_AREA : cv::INTER_CUBIC);
+                    if (fh) cv::flip(pic, pic, 1);
+                    if (fv) cv::flip(pic, pic, 0);
+                    for (int py = -m; py < object.height + m; py++)
+                    {
+                        for (int px = -m; px < object.width + m; px++)
+                        {
+                            bool paint = object.overflow;
+                            if (!paint)
+                            {
+                                for (size_t i : members)
+                                {
+                                    const int lx = ox + px - cells[i].x, ly = oy + py - cells[i].y;
+                                    if (lx >= 0 && lx < 8 && ly >= 0 && ly < 8 && (cells[i].visibleMask & (1ULL << (ly * 8 + lx))))
+                                    {
+                                        paint = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!paint)
+                                continue;
+                            for (int j = 0; j < scale; j++)
+                            {
+                                const int dy = (oy + py) * scale + j;
+                                if (dy < 0 || dy >= hd.rows) continue;
+                                const cv::Vec4b* src = pic.ptr<cv::Vec4b>((py + object.margin) * scale + j);
+                                cv::Vec3b* dst = hd.ptr<cv::Vec3b>(dy);
+                                for (int i = 0; i < scale; i++)
+                                {
+                                    const int dx = (ox + px) * scale + i;
+                                    if (dx < 0 || dx >= hd.cols) continue;
+                                    const cv::Vec4b& s = src[(px + object.margin) * scale + i];
+                                    cv::Vec3b& d = dst[dx];
+                                    const int alpha = s[3];
+                                    if (alpha == 255) d = cv::Vec3b(s[0], s[1], s[2]);
+                                    else if (alpha > 0)
+                                        for (int c = 0; c < 3; c++)
+                                            d[c] = static_cast<uint8_t>((s[c] * alpha + d[c] * (255 - alpha)) / 255);
+                                }
+                            }
+                        }
+                    }
+                    for (size_t i : members)
+                        consumed[i] = 1;
+                    painted++;
+                    break; // this anchor cell is used
+                }
+            }
+        }
+        return painted;
+    }
+
+    size_t HdLayer::ObjectCount()
+    {
+        std::lock_guard<std::mutex> l(packMutex);
+        return objects.size();
+    }
+
     void HdLayer::SetScale(int scale)
     {
         scale_.store(scale <= 0 ? 0 : std::clamp(scale, 2, 8));
@@ -258,8 +432,7 @@ namespace NES
         std::lock_guard<std::mutex> l(packMutex);
         if (packDir.empty())
             return;
-        const std::string tiles = (fs::path(packDir) / "tiles").string();
-        if (DirStamp(tiles) != packStamp)
+        if (PackStamp() != packStamp)
             LoadPackLocked();
     }
 
@@ -386,10 +559,16 @@ namespace NES
             NES_PROFILE_HOT("hd_compose");
             cv::resize(snap.image, out, cv::Size(256 * scale, 240 * scale), 0, 0, cv::INTER_NEAREST);
             std::lock_guard<std::mutex> l(packMutex);
-            if (skins.empty())
+            if (skins.empty() && objects.empty())
                 return;
-            for (const HdCell& cell : snap.cells)
+            std::vector<char> consumed(snap.cells.size(), 0);
+            if (!objects.empty())
+                HdLayer::PaintObjects(out, scale, snap.cells, objects, consumed);
+            for (size_t i = 0; i < snap.cells.size(); i++)
             {
+                if (consumed[i])
+                    continue; // painted as part of an object
+                const HdCell& cell = snap.cells[i];
                 const cv::Mat& tile = FindSkin(cell, scale, HdLayer::HashName(cell.hash));
                 if (!tile.empty())
                     HdLayer::PaintCell(out, scale, cell, tile);

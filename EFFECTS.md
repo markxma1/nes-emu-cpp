@@ -49,18 +49,43 @@ paint garbage - the worst case is "this tile keeps its original look in this fra
 
 ## Limits of this first version (and what would lift them)
 
-1. **A skin is limited to its tile's silhouette.** HD pixels are painted only where the original tile has visible pixels, so outlines/glow that extend beyond the original shape are not possible yet. *Lift:* paint the full HD tile where nothing in front of it is drawn (needs a "what is in front" mask) - no core change.
-2. **One tile = one picture.** A character made of 6 sprite tiles is edited tile by tile (the Frame tab makes this feel like editing the whole character, but the pictures are still per tile). Seams between tiles cannot be smoothed across tiles. *Lift:* "objects" = a group of tiles at fixed relative positions (matched per frame) with one big picture; the layer above is designed to allow this.
+1. **Tiles vs. groups.** A single tile's skin is limited to that tile's own pixels. For anything bigger use a **group** (below): one picture for a whole character, optionally larger than the tiles' silhouette (`overflow` + margin) for outlines, glow or a smoother shape.
+2. **Groups need all their tiles.** A group is found only where every tile is present and visible at the same relative positions (mirrored copies are found too). Animation frames are different tiles, so each frame (pose) of a character is its own group; a group that is partly covered by another sprite is not matched in that frame and falls back to the single-tile skins. Groups of background tiles have to be selected by hand (a background is one big grid, so automatic guessing would merge everything).
 3. **Mid-frame changes.** Split screens (status bars) and games that swap CHR banks in the middle of the frame are only handled through the verification above (mismatch = original shown). *Lift (small, read-only core change):* record scroll/CTRL/CHR state per scanline in the PPU (per-row CHR snapshots already exist for the viewers).
 4. **Background tiles under sprites of the same colour** can be painted over the sprite pixel (rare, only when a skin exists for that background tile).
 5. **Whole-background replacement** (a painted picture instead of tiles) is not tile based; it would need scene matching. Not attempted.
 6. **AI:** no model is built in. The sheet export/import connects the editor to any external upscaler (Real-ESRGAN, waifu2x, a diffusion model, ...). Doing it inside the tool (e.g. calling a local model per tile with colour-consistency checks) is a possible next step.
+
+## Groups (objects)
+
+An object is a group of tiles with ONE picture: the 2x2 player ship, a big enemy, a boss. Stored as
+`skins/<rom>/objects/<name>.obj` (text) + `<name>.png`:
+
+```
+layer s              s = sprites, b = background
+size 16 16           width and height in NES pixels
+margin 4             extra NES pixels of picture on every side (used with overflow)
+overflow 1           1 = paint the whole picture, also beyond the tiles' own pixels
+tile 0 0 <hash> 0 0  one line per tile: x y (relative), hash, flipH, flipV as seen when the group was made
+```
+
+The layer looks for every place where all tiles are present at these relative positions (also mirrored
+horizontally / vertically: the picture is mirrored with it), paints the picture and skips the single-tile
+skins for these tiles. Without overflow the picture replaces only the visible pixels of the tiles (so
+things in front still cover it); with overflow it is painted over its whole area.
+
+In the editor (Frame tab): **Auto-group sprites** groups sprite tiles that touch each other and have the same
+palette (the player ship, big enemies); check the green outlines and delete wrong groups. **Select tiles**
+lets you drag a rectangle around the tiles of one object (sprites or background) and **Group selected** makes
+the group (you choose the name, overflow and margin). Groups appear in the tile list at the top and can be
+painted like tiles, also directly on the captured picture.
 
 ## Files
 
 ```
 skins/<rom name>/tiles/<hash>.png              skin of a tile (RGBA, size = multiple of 8)
 skins/<rom name>/tiles/<hash>_s2.png           skin only for sprites drawn with palette 2 (_b<pal> = background)
+skins/<rom name>/objects/<name>.obj/.png       group of tiles with one picture
 skins/<rom name>/capture/cap_<frame>.json/png  input for the editor
 NES/HdLayer.h/.cpp                             snapshot + compositor (no core change)
 tools/nes_skin_editor.py                       the editor

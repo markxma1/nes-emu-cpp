@@ -1904,6 +1904,64 @@ namespace
         Check(full.R == three_f.R && full.G == three_f.G && full.B == three_f.B, "Palette: $FF must show the same colour as $3F");
     }
 
+    /// Object groups: several tiles with one picture; found at any position, mirrored too; incomplete groups are not painted.
+    void TestHdLayerObjects()
+    {
+        HdObject object;
+        const std::string text = "layer s\nsize 16 8\nmargin 2\noverflow 1\ntile 0 0 00000000000000aa 0 0\ntile 8 0 00000000000000bb 0 0\n";
+        Check(HdLayer::ParseObject(text, object) && object.width == 16 && object.height == 8 && object.margin == 2 && object.overflow
+                  && object.tiles.size() == 2 && object.tiles[1].hash == 0xbb && object.tiles[1].dx == 8, "HD object: text format is parsed");
+        HdObject bad;
+        Check(!HdLayer::ParseObject("layer s\nsize 16 8\ntile 0 0 zz 0 0\n", bad), "HD object: a broken tile line is rejected");
+        Check(!HdLayer::ParseObject("layer s\ntile 0 0 aa 0 0\n", bad), "HD object: a missing size is rejected");
+
+        const int scale = 2;
+        object.margin = 0;
+        object.overflow = false;
+        // picture (16x8 NES pixels at 2x): left half red, right half green, opaque
+        object.picture = cv::Mat(8 * scale, 16 * scale, CV_8UC4, cv::Scalar(0, 0, 255, 255));            // BGRA red
+        object.picture(cv::Rect(8 * scale, 0, 8 * scale, 8 * scale)).setTo(cv::Scalar(0, 255, 0, 255));  // right half green
+        auto cell = [](uint64_t hash, int x, int y, bool fh) {
+            HdCell c; c.sprite = true; c.hash = hash; c.x = x; c.y = y; c.flipH = fh; c.visibleMask = ~0ULL; c.visible = 64; return c;
+        };
+        // normal group at (20,30); the same group mirrored at (100,50): flipped tiles, positions swapped; a lone tile "aa" at (150,150)
+        std::vector<HdCell> cells = { cell(0xaa, 20, 30, false), cell(0xbb, 28, 30, false), cell(0xbb, 100, 50, true), cell(0xaa, 108, 50, true), cell(0xaa, 150, 150, false) };
+        cv::Mat hd(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        std::vector<char> consumed(cells.size(), 0);
+        std::vector<HdObject> objects = { object };
+        int n = HdLayer::PaintObjects(hd, scale, cells, objects, consumed);
+        Check(n == 2, "HD object: found in both orientations, not on the lone tile (found " + std::to_string(n) + ")");
+        Check(consumed[0] && consumed[1] && consumed[2] && consumed[3] && !consumed[4], "HD object: member cells are consumed, others are not");
+        Check(hd.at<cv::Vec3b>(30 * scale, 20 * scale) == cv::Vec3b(0, 0, 255), "HD object: left half of the normal group is red");
+        Check(hd.at<cv::Vec3b>(30 * scale, 28 * scale) == cv::Vec3b(0, 255, 0), "HD object: right half of the normal group is green");
+        Check(hd.at<cv::Vec3b>(50 * scale, 100 * scale) == cv::Vec3b(0, 255, 0), "HD object: the mirrored group has the picture mirrored (green left)");
+        Check(hd.at<cv::Vec3b>(50 * scale, 108 * scale) == cv::Vec3b(0, 0, 255), "HD object: the mirrored group has red on the right");
+        Check(hd.at<cv::Vec3b>(150 * scale, 150 * scale) == cv::Vec3b(0, 0, 0), "HD object: the lone tile is untouched");
+
+        // a group with a missing tile is not painted at all
+        std::vector<HdCell> partial = { cell(0xaa, 20, 30, false) };
+        cv::Mat hd2(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        std::vector<char> consumed2(1, 0);
+        Check(HdLayer::PaintObjects(hd2, scale, partial, objects, consumed2) == 0 && !consumed2[0], "HD object: incomplete group is not matched");
+
+        // without overflow only visible pixels are painted; with overflow the margin is painted too
+        std::vector<HdCell> hidden = { cell(0xaa, 20, 30, false), cell(0xbb, 28, 30, false) };
+        hidden[1].visibleMask = 0;
+        cv::Mat hd3(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        std::vector<char> consumed3(2, 0);
+        HdLayer::PaintObjects(hd3, scale, hidden, objects, consumed3);
+        Check(hd3.at<cv::Vec3b>(30 * scale, 20 * scale) == cv::Vec3b(0, 0, 255) && hd3.at<cv::Vec3b>(30 * scale, 28 * scale) == cv::Vec3b(0, 0, 0),
+              "HD object: pixels covered by something else keep their picture");
+        HdObject big = object;
+        big.overflow = true; big.margin = 2;
+        big.picture = cv::Mat((8 + 4) * scale, (16 + 4) * scale, CV_8UC4, cv::Scalar(255, 0, 0, 255)); // blue, including the margin
+        std::vector<HdObject> bigObjects = { big };
+        cv::Mat hd4(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        std::vector<char> consumed4(2, 0);
+        HdLayer::PaintObjects(hd4, scale, hidden, bigObjects, consumed4);
+        Check(hd4.at<cv::Vec3b>((30 - 2) * scale, (20 - 2) * scale) == cv::Vec3b(255, 0, 0), "HD object: overflow paints the margin around the tiles");
+    }
+
 int main()
 {
     NES_Console::INIT();
@@ -1951,6 +2009,7 @@ int main()
     TestPaletteIndexIgnoresUpperBits();
     TestSettingsFile();
     TestHdLayerCellHelpers();
+    TestHdLayerObjects();
     TestApuMixerIsNonLinear();
     TestApuPulseFrequency();
     TestApuTriangleFrequency();

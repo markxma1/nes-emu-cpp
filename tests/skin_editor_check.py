@@ -86,6 +86,82 @@ with tempfile.TemporaryDirectory() as d:
     r, g, b = pieces["aaaa"].getpixel((0, 8))[:3]
 check(r > 200 and g < 60 and b < 60, "import_sheet: colours survive a 2x enlarged sheet (got %s)" % ((r, g, b),))
 
+# ---- objects: groups of tiles with one picture ----
+def make_cell(x, y, hash_name, fh=0, fv=0, s=1, pal=0):
+    tile = bytes([0xFF] * 8 + [0x00] * 8)   # solid index 1
+    return {"x": x, "y": y, "s": s, "fh": fh, "fv": fv, "pal": pal, "hash": hash_name, "bytes": tile.hex(),
+            "vis": 64, "rgb": [[0, 0, 0], [200, 200, 200], [0, 0, 0], [0, 0, 0]]}
+
+
+with tempfile.TemporaryDirectory() as d:
+    frame = Image.new("RGB", (256, 240), (0, 0, 0))
+    # a 2x1 ship "aa","bb" at (20,30), the same ship mirrored at (100,50), and a lone "aa" at (150,150)
+    cells = [make_cell(20, 30, "aa"), make_cell(28, 30, "bb"),
+             make_cell(100, 50, "bb", fh=1), make_cell(108, 50, "aa", fh=1),
+             make_cell(150, 150, "aa")]
+    for c in cells:
+        for y in range(8):
+            for x in range(8):
+                frame.putpixel((c["x"] + x, c["y"] + y), (200, 200, 200))
+    os.makedirs(os.path.join(d, "capture"))
+    frame.save(os.path.join(d, "capture", "cap_9.png"))
+    with open(os.path.join(d, "capture", "cap_9.json"), "w") as f:
+        json.dump({"frame": 9, "cells": cells}, f)
+    cap = e.load_captures(d)[0]
+
+    # grouping by hand and automatically
+    obj = e.object_from_cells(cap, [0, 1], 2, "ship")
+    check(obj.width == 16 and obj.height == 8 and len(obj.tiles) == 2 and obj.picture.size == (32, 16), "object_from_cells: size and picture")
+    check(e.object_from_cells(cap, [0, 4], 2, "far").width == 138, "object_from_cells: bounding box of far apart tiles")
+    try:
+        e.object_from_cells(cap, [0, 1], 2, "x")
+        e.object_from_cells(cap, [], 2, "x")
+        check(False, "empty selection must be rejected")
+    except ValueError:
+        pass
+    groups = e.auto_group(cap)
+    check(len(groups) == 1 and groups[0] in ([0, 1], [2, 3]), "auto_group: one distinct group (ship and its mirror are the same shape), lone tile ignored: %r" % groups)
+
+    # matching finds both orientations
+    objs = {"ship": obj}
+    ms = e.match_objects(cap, objs)
+    check(len(ms) == 2 and {(m.fh, m.fv) for m in ms} == {(0, 0), (1, 0)}, "match_objects: normal and mirrored")
+    check(sorted(i for m in ms for i in m.members) == [0, 1, 2, 3], "match_objects: the lone tile is not part of a group")
+
+    # painting: left half red, right half green; the mirrored copy shows it mirrored
+    obj.picture.paste((255, 0, 0, 255), (0, 0, 16, 16))
+    obj.picture.paste((0, 255, 0, 255), (16, 0, 32, 16))
+    out = e.compose(cap, {}, 2, objs)
+    check(out.getpixel((20 * 2, 30 * 2)) == (255, 0, 0) and out.getpixel((28 * 2, 30 * 2)) == (0, 255, 0), "compose: object picture painted")
+    check(out.getpixel((100 * 2, 50 * 2)) == (0, 255, 0) and out.getpixel((108 * 2, 50 * 2)) == (255, 0, 0), "compose: mirrored group has the picture mirrored")
+    check(out.getpixel((150 * 2, 150 * 2)) == (200, 200, 200), "compose: the lone tile keeps the original")
+    # a per-tile skin is ignored for tiles that are part of an object
+    tile_skin = Image.new("RGBA", (16, 16), (0, 0, 255, 255))
+    out2 = e.compose(cap, {"aa": tile_skin}, 2, objs)
+    check(out2.getpixel((20 * 2, 30 * 2)) == (255, 0, 0) and out2.getpixel((150 * 2, 150 * 2)) == (0, 0, 255), "compose: object wins over tile skins, lone tile uses its tile skin")
+
+    # overflow with margin paints beyond the tiles
+    big = e.object_from_cells(cap, [0, 1], 2, "big", margin=2, overflow=True)
+    big.picture.paste((0, 0, 255, 255), (0, 0, big.picture.width, big.picture.height))
+    out3 = e.compose(cap, {}, 2, {"big": big})
+    check(out3.getpixel(((20 - 2) * 2, (30 - 2) * 2)) == (0, 0, 255), "compose: overflow paints the margin")
+
+    # click position -> position inside the picture (mirrored group is flipped)
+    m0 = [m for m in ms if not m.fh][0]
+    m1 = [m for m in ms if m.fh][0]
+    check(e.picture_position(m0, 20, 30, 0, 0) == (0, 0), "picture_position: normal group top-left")
+    check(e.picture_position(m1, 100, 50, 0, 0)[0] == 31 - 0 - 0 or e.picture_position(m1, 100, 50, 0, 0)[0] >= 30, "picture_position: mirrored group reads from the right edge")
+    check(e.match_at(cap, ms, 20, 30) is m0 and e.match_at(cap, ms, 150, 150) is None, "match_at")
+
+    # save/load round trip, text format the C++ side reads
+    e.save_object(d, obj)
+    loaded = e.load_objects(d)
+    check(list(loaded) == ["ship"] and loaded["ship"].width == 16 and loaded["ship"].tiles[1]["hash"] == "bb", "objects save/load")
+    text = obj.to_text()
+    check(text.splitlines()[0] == "layer s" and "tile 8 0 bb 0 0" in text, "object text format")
+    e.delete_object(d, "ship")
+    check(e.load_objects(d) == {}, "delete_object")
+
 # painting
 im = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
 e.paint(im, 2, 2, (1, 2, 3, 255), 2)

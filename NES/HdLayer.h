@@ -59,6 +59,27 @@ namespace NES
         uint64_t hash = 0;         ///< hash of `bytes`
     };
 
+    /// A group of tiles that belong together (a 2x2 player ship, a big enemy) with ONE picture for the whole
+    /// group. The picture may be larger than the group's silhouette (`overflow`). Stored as
+    /// `objects/<name>.obj` (text) + `objects/<name>.png` in the skin pack:
+    ///     layer s            (s = sprites, b = background)
+    ///     size 16 16         (width and height of the group in NES pixels)
+    ///     margin 0           (extra NES pixels of picture on every side, only used with overflow)
+    ///     overflow 0         (1: paint the whole picture, also beyond the tiles' own pixels)
+    ///     tile <dx> <dy> <hash> <flipH> <flipV>     (one line per tile, position relative to the group's top-left)
+    /// The group is found in a frame when all its tiles are present at these relative positions, also mirrored
+    /// horizontally and/or vertically (all flip flags of the tiles then toggle together).
+    struct HdObject
+    {
+        struct Tile { int dx = 0, dy = 0; uint64_t hash = 0; bool flipH = false, flipV = false; };
+        std::string name;
+        bool sprite = true;
+        int width = 0, height = 0, margin = 0;
+        bool overflow = false;
+        std::vector<Tile> tiles;
+        cv::Mat picture;   ///< BGRA, (width+2*margin)*k x (height+2*margin)*k pixels for any k >= 1
+    };
+
     class HdLayer
     {
     public:
@@ -87,6 +108,13 @@ namespace NES
         static std::string HashName(uint64_t hash);
         static uint64_t HashBytes(const uint8_t* bytes, int count);
 
+        /// Reads the text of an .obj file (see HdObject); false if it is not valid.
+        static bool ParseObject(const std::string& text, HdObject& out);
+        /// Finds every place where an object's tiles are all present in `cells` (not yet `consumed`), paints its
+        /// picture onto `hd` and marks the member cells as consumed. Returns the number of matches painted.
+        static int PaintObjects(cv::Mat& hd, int scale, const std::vector<HdCell>& cells,
+                                const std::vector<HdObject>& objects, std::vector<char>& consumed);
+
         /// Pure helpers, exposed for tests --------------------------------------------------------
         /// Palette index (0-3) of pixel (x, y) of a tile given its 16 bytes, before any flip.
         static int PixelIndex(const uint8_t bytes[16], int x, int y);
@@ -96,6 +124,8 @@ namespace NES
         /// Paints the skin `tile` (BGRA, exactly 8*scale x 8*scale) of `cell` onto `hd` (BGR, scale*256 x scale*240)
         /// for the pixels flagged in cell.visibleMask.
         static void PaintCell(cv::Mat& hd, int scale, const HdCell& cell, const cv::Mat& tile);
+        /// Number of objects loaded from the pack.
+        static size_t ObjectCount();
 
     private:
         static std::atomic<int> scale_;
