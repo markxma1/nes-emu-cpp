@@ -222,6 +222,15 @@ format and speed measurements (the layer runs on its own thread with its own cop
 per frame): [EFFECTS.md](EFFECTS.md). `NES_BENCH_HD=3 NES_BENCH_SKINS=<folder> ./build/nes-bench game.nes 1500`
 measures it (`NES_BENCH_HD=3:sync` = everything on the emulation thread, for comparison).
 
+### Play, train, publish
+
+The skin layer is off by default and costs nothing then. For training an agent use `nes-bench`
+(no window; `NES_BENCH_RENDER_EVERY=4` draws one frame in four, `=0` none at all - about 13x real time;
+`NES_BENCH_OBS=84x84` measures a small grey observation). To publish a game: record the inputs (`Y` in the
+emulator, or a log from an agent), then render offline with the full skin layer and sound:
+`./build/nes-render game.nes game.nes.inputs.txt game.mp4 4 build/skins/game` (needs `ffmpeg`).
+Details and numbers: [EFFECTS.md](EFFECTS.md).
+
 ### Sound
 
 The APU is clocked by the emulated CPU (`NES_APU::Advance()` after every instruction), so pitch,

@@ -112,3 +112,21 @@ paused; cache decoded cells per hash.
 The PPU's picture composition (about 40% of the time) is the largest block. It could be split off the same
 way - the emulation thread records per-scanline state, another thread turns it into pixels - but that changes
 the core and is only worth it if uncapped speed becomes the goal again.
+
+## Three ways to run: play, train, publish
+
+The skin layer is optional and costs nothing while it is off (`hd_scale=0`, the default: no thread, no copy).
+The same emulation serves three uses:
+
+| Use | Picture | Command / setting | Speed (Tiny Toon, ms per emulated frame) |
+|---|---|---|---|
+| **Play** (human, 1-3x is plenty) | window, optional skins 2-4x on the worker thread | `nes-emu`, `H` | about 2.7 (of 16.6 available) |
+| **Train an AI** | none, or a small grey picture; better still the game's RAM values as observation | `nes-bench`, `NES_BENCH_RENDER_EVERY=N`, `NES_BENCH_OBS=84x84` | 2.45 full picture; 2.9 with an 84x84 grey observation of every frame; 1.55 drawing one frame in four (about 11x real time); **1.2 without drawing anything** (about 13x real time) |
+| **Publish** (YouTube, commentary) | rendered later, slowly, as beautiful as wanted | `nes-render` | about 7.6 ms/frame at 4x with skins, ~2x real time |
+
+The idea behind the third row: **record the buttons, not the video.** A game (human or AI) is
+reproduced exactly from its input log, because the emulation is deterministic. Afterwards
+`nes-render game.nes game.inputs.txt out.mp4 4 skins/game` replays it without a window, composes every frame
+with the skin layer (none dropped, unlike the live worker), records the sound and muxes an mp4 with
+`ffmpeg`. An AI's commentary or statistics can be logged with the frame numbers and put on top of the
+finished video, since the video can be rendered again at any time with newer skins.

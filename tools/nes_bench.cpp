@@ -24,6 +24,8 @@
 /// `NES_BENCH_HD=<scale>[:sync]` also runs the skin layer (HdLayer): by default the CPU thread only copies the
 /// frame state and a worker thread does the rest (like the real emulator); `:sync` does everything on the CPU
 /// thread for comparison. `NES_BENCH_SKINS=<pack folder>` loads skins.
+/// `NES_BENCH_OBS=<w>x<h>` additionally makes a small grey picture of every frame, like the observation a
+/// learning agent would get (measures what that costs).
 /// This is the starting point for
 /// running the emulator without any UI, e.g. to let a learning agent play many times
 /// faster than real time.
@@ -39,6 +41,7 @@
 #include "HdLayer.h"
 
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <chrono>
 #include <cstdlib>
 #include <exception>
@@ -123,8 +126,19 @@ int main(int argc, char** argv)
     }
     NES::NES_CPU::mod = NES::Mod::none; // no real-time throttle
 
+    int obsW = 0, obsH = 0;
+    if (const char* obs = std::getenv("NES_BENCH_OBS"))
+        std::sscanf(obs, "%dx%d", &obsW, &obsH);
+    long long obsChecksum = 0;
     NES::NES_CPU::frameHook = [&](long long frame)
     {
+        if (obsW > 0 && obsH > 0)
+        {
+            cv::Mat grey, small;
+            cv::cvtColor(NES::NES_Console::getDisplay().Image(), grey, cv::COLOR_BGR2GRAY);
+            cv::resize(grey, small, cv::Size(obsW, obsH), 0, 0, cv::INTER_AREA);
+            obsChecksum += small.at<uint8_t>(obsH / 2, obsW / 2);
+        }
         auto it = events.find(frame);
         if (it != events.end())
             for (const auto& [button, down] : it->second)
@@ -167,6 +181,8 @@ int main(int argc, char** argv)
             h = (h ^ NES::NES_Memory::Memory[static_cast<size_t>(a)]->value()) * 1099511628211ull;
         std::cout << "ram hash " << std::hex << h << std::dec << std::endl;
     }
+    if (obsW > 0)
+        std::cout << "observation " << obsW << "x" << obsH << " grey per frame (checksum " << obsChecksum << ")" << std::endl;
     if (!hdMode.empty())
     {
         cv::Mat last;

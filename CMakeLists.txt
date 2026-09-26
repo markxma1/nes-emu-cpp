@@ -111,3 +111,13 @@ add_custom_command(TARGET nes-bench POST_BUILD
         ${CMAKE_SOURCE_DIR}/NES_PPU/Palette/Palletes
         $<TARGET_FILE_DIR:nes-bench>/Palletes
 )
+
+# Offline video renderer (replay + skin layer + sound -> mp4, needs ffmpeg at run time) - see tools/nes_render.cpp.
+add_executable(nes-render ${NES_CORE_SOURCES} ${CMAKE_SOURCE_DIR}/tools/nes_render.cpp ${CMAKE_SOURCE_DIR}/NES/HdLayer.cpp)
+target_include_directories(nes-render PRIVATE ${NES_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(nes-render PRIVATE ${OpenCV_LIBS} pthread)
+add_custom_command(TARGET nes-render POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/NES_PPU/Palette/Palletes
+        $<TARGET_FILE_DIR:nes-render>/Palletes
+)
