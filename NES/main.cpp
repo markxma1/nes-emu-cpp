@@ -59,6 +59,7 @@
 #include "NES_Audio.h"
 #include "NES_APU.h"
 #include "Settings.h"
+#include "HdLayer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -140,6 +141,7 @@ namespace
     void ApplySettings()
     {
         NES::NES_APU::SetVolumePercent(settings.volume);
+        NES::HdLayer::SetScale(settings.hdScale);
         for (auto& src : inputSources)
             if (auto* pad = dynamic_cast<NES::GamepadInputSource*>(src.get()))
                 if (settings.twoPads)
@@ -152,6 +154,7 @@ namespace
     {
         if (uiFrame % 30 != 0)
             return;
+        NES::HdLayer::ReloadPackIfChanged();
         static long long keyboardTime = NES::Settings::ModifiedTime("./keyboard.cfg");
         static long long gamepadTime = NES::Settings::ModifiedTime("./gamepad.cfg");
         long long s = NES::Settings::ModifiedTime(NES::Settings::kFile);
@@ -186,6 +189,27 @@ namespace
         settingsFileTime = NES::Settings::ModifiedTime(NES::Settings::kFile);
         if (!fullscreen)
             cv::resizeWindow(kGameWindowName, GameWindowSize().width, GameWindowSize().height);
+    }
+
+    std::string currentRomPath;
+
+    /// Skin pack folder of the current game: skins/<rom file name without extension>.
+    void UpdateSkinPack()
+    {
+        std::string stem = std::filesystem::path(currentRomPath).stem().string();
+        NES::HdLayer::SetPackDir("skins/" + stem);
+    }
+
+    /// H: skin layer off -> 2x -> 3x -> 4x -> off.
+    void CycleHd()
+    {
+        const int next[9] = { 2, 0, 3, 4, 0, 0, 0, 0, 0 };
+        settings.hdScale = next[std::clamp(settings.hdScale, 0, 8)];
+        settings.Save();
+        settingsFileTime = NES::Settings::ModifiedTime(NES::Settings::kFile);
+        NES::HdLayer::SetScale(settings.hdScale);
+        std::cout << "Skin layer: " << (settings.hdScale ? std::to_string(settings.hdScale) + "x" : std::string("off"))
+                  << " (" << NES::HdLayer::SkinCount() << " tile pictures loaded)" << std::endl;
     }
 
     void ToggleFullscreen()
@@ -618,7 +642,6 @@ namespace
     /// remember this past the initial NES_Console::LoadRom() call). Used
     /// only to name save-state files after the ROM they belong to (see
     /// SaveStatePath() below) - not read by anything gameplay-related.
-    std::string currentRomPath;
 
     /// See NES_SaveState's own comment. One file
     /// per (ROM, slot) pair, next to the executable (matching this port's
@@ -958,6 +981,8 @@ namespace
                         remapState.Begin(src.get());
             break;
         case 's': case 'S': LaunchSettingsUi(); break;
+        case 'h': case 'H': CycleHd(); break;
+        case 'x': case 'X': NES::HdLayer::RequestCapture(); break;
         case ',': ChangeScale(-1, 0); break;
         case '.': ChangeScale(+1, 0); break;
         case '<': ChangeScale(0, -1); break;
@@ -1072,6 +1097,7 @@ int main(int argc, char** argv)
         NES::NES_Console::INIT();
         NES::NES_Console::LoadRom(romPath);
         currentRomPath = romPath;
+        UpdateSkinPack();
     }
     catch (const std::exception& e)
     {
@@ -1372,6 +1398,17 @@ int main(int argc, char** argv)
         };
     }
 
+    // Skin layer: takes a snapshot of the sprites/tiles at the end of every frame (no-op while off).
+    {
+        auto previousHook = NES::NES_CPU::frameHook;
+        NES::NES_CPU::frameHook = [previousHook](long long frame)
+        {
+            if (previousHook)
+                previousHook(frame);
+            NES::HdLayer::OnFrame(frame);
+        };
+    }
+
     std::thread cpuThread([autoLoadedSave]() {
         if (autoLoadedSave)
             NES::NES_Console::Resume();
@@ -1402,6 +1439,7 @@ int main(int argc, char** argv)
         {
             NES::NES_Console::LoadRom(path);
             currentRomPath = path;
+            UpdateSkinPack();
             std::cout << "Loaded " << path << std::endl;
         }
         catch (const std::exception& e)
@@ -1438,6 +1476,7 @@ int main(int argc, char** argv)
               << std::endl;
     std::cout << "Press L to pick a different ROM (looked for next to the executable and in ./roms)."
               << std::endl;
+    std::cout << "H = skin layer (off/2x/3x/4x), X = capture the current picture for the skin editor (tools/nes_skin_editor.py)." << std::endl;
     std::cout << "S = settings program (buttons, window size, volume), , and . = smaller/larger window, < and > = debug windows, F = full screen." << std::endl;
     std::cout << "Speed: + doubles, - halves, 0 resets to real NTSC (1x)." << std::endl;
     std::cout << "Save states: 1-9 picks a slot (default 1), Q saves, E loads." << std::endl;
@@ -1830,7 +1869,16 @@ int main(int argc, char** argv)
 
         ReloadSettingsIfChanged(uiFrame);
         cv::Mat scaled;
-        cv::resize(img, scaled, cv::Size(img.cols * settings.scale, img.rows * settings.scale), 0, 0, cv::INTER_NEAREST);
+        {
+            cv::Mat hd;
+            if (NES::HdLayer::Scale() > 0 && NES::HdLayer::Compose(hd))
+            {
+                const cv::Size target = GameWindowSize();
+                cv::resize(hd, scaled, target, 0, 0, hd.cols > target.width ? cv::INTER_AREA : cv::INTER_LINEAR);
+            }
+            else
+                cv::resize(img, scaled, cv::Size(img.cols * settings.scale, img.rows * settings.scale), 0, 0, cv::INTER_NEAREST);
+        }
 
         PollInputSources();
 

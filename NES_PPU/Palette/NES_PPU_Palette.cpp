@@ -65,24 +65,26 @@ namespace NES
         return NES_PPU_Color(color, SpriteIsNew(start), isNewColor);
     }
 
+    // Palette RAM holds 6-bit colour numbers: the PPU ignores the two upper bits, so a game may write any byte
+    // (e.g. $4F = $0F). Without the mask such a value indexed past the end of the 64-entry table.
     NES_PPU::Color NES_PPU_Palette::UniversalBackgroundColor()
     {
-        return PPUpalettes[NES_PPU_Memory::BGPalette[0]->Value()];
+        return PPUpalettes[NES_PPU_Memory::BGPalette[0]->Value() & 0x3F];
     }
 
     NES_PPU::Color NES_PPU_Palette::getBGColorAsRGB(int BGAdress)
     {
-        return PPUpalettes[NES_PPU_Memory::BGPalette[static_cast<size_t>(BGAdress)]->Value()];
+        return PPUpalettes[NES_PPU_Memory::BGPalette[static_cast<size_t>(BGAdress)]->Value() & 0x3F];
     }
 
     NES_PPU::Color NES_PPU_Palette::getSpriteColorAsRGB(int SpriteAdress)
     {
-        return PPUpalettes[NES_PPU_Memory::SpritePalette[static_cast<size_t>(SpriteAdress)]->Value()];
+        return PPUpalettes[NES_PPU_Memory::SpritePalette[static_cast<size_t>(SpriteAdress)]->Value() & 0x3F];
     }
 
     NES_PPU::Color NES_PPU_Palette::getColorAsRGB(int Adress)
     {
-        return PPUpalettes[NES_PPU_Memory::Memory[static_cast<size_t>(Adress)]->Value()];
+        return PPUpalettes[NES_PPU_Memory::Memory[static_cast<size_t>(Adress)]->Value() & 0x3F];
     }
 
     int NES_PPU_Palette::OctToHex(int a)

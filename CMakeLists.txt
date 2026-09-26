@@ -79,6 +79,7 @@ add_executable(nes-emu ${NES_CORE_SOURCES}
     ${CMAKE_SOURCE_DIR}/NES/main.cpp
     ${CMAKE_SOURCE_DIR}/NES/KeyboardInputSource.cpp
     ${CMAKE_SOURCE_DIR}/NES/GamepadInputSource.cpp
+    ${CMAKE_SOURCE_DIR}/NES/HdLayer.cpp
     ${CMAKE_SOURCE_DIR}/NES_Audio/NES_Audio.cpp
 )
 

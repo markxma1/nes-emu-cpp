@@ -75,7 +75,7 @@ add_test(NAME mapper_check COMMAND mapper_check)
 
 # CPU/interrupt/PPU-register harness (see tests/cpu/cpu_check.cpp) - direct
 # synthetic-program tests, no real .nes file needed.
-add_executable(cpu_check ${NES_TEST_CORE_SOURCES} cpu/cpu_check.cpp)
+add_executable(cpu_check ${NES_TEST_CORE_SOURCES} cpu/cpu_check.cpp ${CMAKE_SOURCE_DIR}/NES/HdLayer.cpp)
 target_include_directories(cpu_check PRIVATE ${NES_TEST_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(cpu_check PRIVATE ${OpenCV_LIBS} pthread)
 
@@ -89,6 +89,7 @@ add_test(NAME cpu_check COMMAND cpu_check)
 find_program(PYTHON3 python3)
 if(PYTHON3)
     add_test(NAME settings_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/settings_check.py)
+    add_test(NAME skin_editor_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/skin_editor_check.py)
 endif()
 
 # This whole codebase leans on permanent static/global singletons

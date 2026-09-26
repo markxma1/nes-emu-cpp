@@ -40,6 +40,7 @@
 #include "NES_Register.h"
 #include "NES_SaveState.h"
 #include "Settings.h"
+#include "HdLayer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1839,6 +1840,70 @@ namespace
         Check(Settings::ModifiedTime(path) == 0, "Settings: missing file has modification time 0");
     }
 
+    /// Skin layer helpers (NES/HdLayer.h): tile decoding, visibility test, painting with flips.
+    void TestHdLayerCellHelpers()
+    {
+        // Tile: plane 0 = leftmost pixel of every row set, plane 1 = only row 0 set on the rightmost pixel.
+        uint8_t bytes[16] = {};
+        for (int r = 0; r < 8; r++) bytes[r] = 0x80;   // pixel x=0 has bit 0 -> index 1
+        bytes[8] = 0x01;                               // row 0, x=7: bit 1 -> index 2
+        Check(HdLayer::PixelIndex(bytes, 0, 3) == 1, "HD: pixel index from plane 0");
+        Check(HdLayer::PixelIndex(bytes, 7, 0) == 2, "HD: pixel index from plane 1");
+        Check(HdLayer::PixelIndex(bytes, 4, 4) == 0, "HD: empty pixel is index 0");
+        Check(HdLayer::HashName(HdLayer::HashBytes(bytes, 16)).size() == 16, "HD: hash name has 16 hex digits");
+        uint8_t other[16] = {}; other[3] = 1;
+        Check(HdLayer::HashBytes(bytes, 16) != HdLayer::HashBytes(other, 16), "HD: different tiles hash differently");
+
+        // A frame showing this tile as a sprite at (10, 20) with horizontal flip.
+        cv::Mat frame(240, 256, CV_8UC3, cv::Scalar(0, 0, 0));
+        HdCell cell;
+        cell.sprite = true; cell.flipH = true; cell.x = 10; cell.y = 20;
+        std::copy(bytes, bytes + 16, cell.bytes);
+        const uint8_t colours[4][3] = { {0,0,0}, {255,0,0}, {0,255,0}, {0,0,255} };
+        for (int i = 0; i < 4; i++) for (int c = 0; c < 3; c++) cell.rgb[i][c] = colours[i][c];
+        for (int py = 0; py < 8; py++)
+            for (int px = 0; px < 8; px++)
+            {
+                int idx = HdLayer::PixelIndex(bytes, 7 - px, py); // flipped
+                if (idx) frame.at<cv::Vec3b>(20 + py, 10 + px) = cv::Vec3b(colours[idx][2], colours[idx][1], colours[idx][0]);
+            }
+        HdLayer::MeasureVisibility(cell, frame);
+        Check(cell.visible == 9 && (cell.visibleMask & (1ULL << 7)), "HD: all 9 opaque pixels of the flipped sprite are visible (got " + std::to_string(cell.visible) + ")");
+        // The same cell in a frame that shows something else there is not drawn at all.
+        cv::Mat wrong(240, 256, CV_8UC3, cv::Scalar(7, 7, 7));
+        HdCell miss = cell;
+        HdLayer::MeasureVisibility(miss, wrong);
+        Check(miss.visible == 0 && miss.visibleMask == 0, "HD: a tile that does not match the picture is not visible");
+        // Painting: 2x scale, skin pixel (x=0,y=0) white, rest transparent; flipH moves it to screen x=7.
+        const int scale = 2;
+        cv::Mat skin(16, 16, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+        skin.at<cv::Vec4b>(0, 0) = cv::Vec4b(255, 255, 255, 255);
+        cv::Mat hd(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        HdLayer::PaintCell(hd, scale, cell, skin);
+        Check(hd.at<cv::Vec3b>((20 + 0) * scale, (10 + 7) * scale) == cv::Vec3b(255, 255, 255), "HD: skin pixel of a flipped tile lands on the mirrored screen pixel");
+        Check(hd.at<cv::Vec3b>(20 * scale, 10 * scale) == cv::Vec3b(0, 0, 0), "HD: the unflipped position stays untouched");
+    }
+
+    /// Palette RAM values above $3F (a game may write any byte; the PPU uses the low 6 bits) must not index
+    /// past the 64-colour table.
+    void TestPaletteIndexIgnoresUpperBits()
+    {
+        auto backdrop = NES_PPU_Memory::BGPalette[0];
+        const uint8_t saved = backdrop->Value();
+        backdrop->Value(0x0F);
+        NES_PPU::Color expected = NES_PPU_Palette::UniversalBackgroundColor();
+        backdrop->Value(0x4F);
+        NES_PPU::Color masked = NES_PPU_Palette::UniversalBackgroundColor();
+        backdrop->Value(0xFF);
+        NES_PPU::Color full = NES_PPU_Palette::UniversalBackgroundColor(); // $FF = $3F
+        backdrop->Value(saved);
+        Check(masked.R == expected.R && masked.G == expected.G && masked.B == expected.B, "Palette: $4F must show the same colour as $0F");
+        NES_PPU_Memory::BGPalette[0]->Value(0x3F);
+        NES_PPU::Color three_f = NES_PPU_Palette::UniversalBackgroundColor();
+        backdrop->Value(saved);
+        Check(full.R == three_f.R && full.G == three_f.G && full.B == three_f.B, "Palette: $FF must show the same colour as $3F");
+    }
+
 int main()
 {
     NES_Console::INIT();
@@ -1883,7 +1948,9 @@ int main()
     TestPageCrossOnlyAppliesToReadInstructions();
     TestOAMDMAStallsCPU();
 
+    TestPaletteIndexIgnoresUpperBits();
     TestSettingsFile();
+    TestHdLayerCellHelpers();
     TestApuMixerIsNonLinear();
     TestApuPulseFrequency();
     TestApuTriangleFrequency();

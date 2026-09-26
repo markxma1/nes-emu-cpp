@@ -36,6 +36,7 @@ namespace NES
         int viewerScale = 1;   ///< same for the debug windows (name table, pattern table, ...) (1-4)
         int volume = 100;      ///< sound volume in percent (0-100)
         bool twoPads = false;  ///< first gamepad = player 1, second gamepad = player 2
+        int hdScale = 0;       ///< skin layer (HdLayer): 0 = off, 2-8 = picture is enlarged this many times
 
         static constexpr const char* kFile = "./settings.cfg";
 
@@ -57,6 +58,7 @@ namespace NES
                 else if (key == "viewer_scale") s.viewerScale = std::clamp(number, 1, 4);
                 else if (key == "volume") s.volume = std::clamp(number, 0, 100);
                 else if (key == "two_pads") s.twoPads = number != 0;
+                else if (key == "hd_scale") s.hdScale = number <= 0 ? 0 : std::clamp(number, 2, 8);
             }
             return s;
         }
@@ -67,7 +69,7 @@ namespace NES
             std::ofstream f(kFile);
             f << "# NES emulator settings - edited by tools/nes_settings.py (safe to hand-edit)\n"
               << "scale=" << scale << "\nviewer_scale=" << viewerScale << "\nvolume=" << volume
-              << "\ntwo_pads=" << (twoPads ? 1 : 0) << "\n";
+              << "\ntwo_pads=" << (twoPads ? 1 : 0) << "\nhd_scale=" << hdScale << "\n";
         }
 
         /// Modification time of a file in seconds (0 if it does not exist); used to notice changes.

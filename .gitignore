@@ -36,3 +36,6 @@ docs/
 !tests/roms/*.nes
 __pycache__/
 *.pyc
+
+# user skin packs and captures (contain pictures of games)
+skins/

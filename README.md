@@ -212,6 +212,14 @@ In the running emulator: `,` / `.` smaller / larger game window, `<` / `>` the d
 screen; the game window can also be resized by dragging its corner. The old in-emulator remap menus
 (`M` keyboard, `G` gamepad) still work.
 
+### Skins: HD sprites and backgrounds (optional)
+
+Replaces sprites and background tiles by higher-resolution pictures at display time, without
+touching the emulated NES. Press `H` in the emulator (off / 2x / 3x / 4x), press `X` to capture the
+current picture, then edit the tiles in `python3 tools/nes_skin_editor.py build/skins/<game>`; saved
+pictures appear in the running game within half a second. How it works, its limits and the file
+format: [EFFECTS.md](EFFECTS.md).
+
 ### Sound
 
 The APU is clocked by the emulated CPU (`NES_APU::Advance()` after every instruction), so pitch,
