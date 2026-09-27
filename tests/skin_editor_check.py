@@ -86,6 +86,63 @@ with tempfile.TemporaryDirectory() as d:
     r, g, b = pieces["aaaa"].getpixel((0, 8))[:3]
 check(r > 200 and g < 60 and b < 60, "import_sheet: colours survive a 2x enlarged sheet (got %s)" % ((r, g, b),))
 
+# ---- hiding a layer in the Frame preview: real bug reported live ("clicking sometimes hits background")
+# - a sprite sitting right next to a background tile made it easy to click/drag-select the wrong layer by
+# a pixel or two. hide_layers() blanks the hidden layer in the picture; cell_at(..., layers=...) makes it
+# genuinely impossible to click, not just visually confusing. ----
+with tempfile.TemporaryDirectory() as d:
+    # a sprite and a background tile side by side (touching, not overlapping) - each individually visible
+    frame = Image.new("RGB", (256, 240), (0, 0, 0))
+    sprite = {"x": 40, "y": 60, "s": 1, "fh": 0, "fv": 0, "pal": 0, "hash": "spr1", "bytes": data.hex(), "vis": 9, "rgb": rgb}
+    bg = {"x": 48, "y": 60, "s": 0, "fh": 0, "fv": 0, "pal": 0, "hash": "bg01", "bytes": data.hex(), "vis": 64, "rgb": rgb}
+    for y in range(8):
+        for x in range(8):
+            if e.pixel_index(data, x, y):
+                frame.putpixel((40 + x, 60 + y), tuple(rgb[e.pixel_index(data, x, y)]))
+            frame.putpixel((48 + x, 60 + y), tuple(rgb[e.pixel_index(data, x, y)]))  # background: every pixel opaque
+    os.makedirs(os.path.join(d, "capture"))
+    frame.save(os.path.join(d, "capture", "cap_1.png"))
+    with open(os.path.join(d, "capture", "cap_1.json"), "w") as f:
+        json.dump({"frame": 1, "cells": [bg, sprite]}, f)
+    hl_cap = e.load_captures(d)[0]
+    check(len(hl_cap.visible(0)) == 64 and len(hl_cap.visible(1)) == 9, "test setup: both cells are fully/correctly visible")
+
+    # (40,63) = sprite-local (0,3): opaque (x=0 column). (48,60) = background-local (0,0): every background
+    # pixel is opaque, so any of its 64 positions works.
+    check(e.cell_at(hl_cap, 48, 60, layers=(1,)) is None, "cell_at: restricted to sprites, a background tile is never hit")
+    check(e.cell_at(hl_cap, 48, 60, layers=(0,)) == (0, 0, 0), "cell_at: restricted to background, that same spot is found")
+    check(e.cell_at(hl_cap, 40, 63, layers=(0,)) is None, "cell_at: restricted to background, the sprite next to it is never hit")
+    check(e.cell_at(hl_cap, 40, 63, layers=(1,)) == (1, 0, 3), "cell_at: restricted to sprites, that same spot is found")
+    check(e.cell_at(hl_cap, 48, 60) == (0, 0, 0) or e.cell_at(hl_cap, 48, 60, layers=(1, 0)) == (0, 0, 0),
+          "cell_at: with both shown, background is still reachable where no sprite covers it")
+
+    scale = 2
+    both = e.compose(hl_cap, {}, scale)
+    hidden_bg = e.hide_layers(hl_cap, both, scale, show_sprites=True, show_background=False)
+    check(hidden_bg.getpixel((40 * scale, 63 * scale)) == both.getpixel((40 * scale, 63 * scale)),
+          "hide_layers: hiding the background leaves the sprite's own pixels untouched")
+    check(hidden_bg.getpixel((49 * scale, 61 * scale)) != both.getpixel((49 * scale, 61 * scale)),
+          "hide_layers: hiding the background actually blanks the background tile's pixels")
+    hidden_sprite = e.hide_layers(hl_cap, both, scale, show_sprites=False, show_background=True)
+    check(hidden_sprite.getpixel((40 * scale, 63 * scale)) != both.getpixel((40 * scale, 63 * scale)),
+          "hide_layers: hiding the sprite actually blanks the sprite's pixels")
+    check(hidden_sprite.getpixel((49 * scale, 61 * scale)) == both.getpixel((49 * scale, 61 * scale)),
+          "hide_layers: hiding the sprite leaves the background tile untouched")
+    check(e.hide_layers(hl_cap, both, scale, True, True) is both, "hide_layers: nothing hidden returns the image unchanged (no needless copy)")
+    check(e.hide_layers(hl_cap, both, scale, True, False).size == both.size, "hide_layers: output size matches the input")
+
+    # real bug found live: a matched GROUP with overflow paints pixels beyond any single member cell's own
+    # visible mask (see object_pixels()) - hide_layers must blank that whole painted area, not just each
+    # cell's own footprint, or a hidden group's artwork stayed fully visible.
+    grp = e.Obj("grp", "s", 8, 8, [{"dx": 0, "dy": 0, "hash": "spr1", "fh": 0, "fv": 0}],
+               Image.new("RGBA", (24, 24), (1, 2, 3, 255)), margin=2, overflow=True)
+    objects = {"grp": grp}
+    check((39, 59) not in {(x, y) for i in (1,) for (x, y) in [(hl_cap.cells[i]["x"] + a, hl_cap.cells[i]["y"] + b) for (a, b) in hl_cap.visible(i)]},
+          "test setup: (39,59) is in the group's overflow margin, not in the raw sprite's own visible pixels")
+    hidden_group = e.hide_layers(hl_cap, both, scale, show_sprites=False, show_background=True, objects=objects)
+    check(hidden_group.getpixel((39 * scale, 59 * scale)) != both.getpixel((39 * scale, 59 * scale)),
+          "hide_layers: hiding a group's layer also blanks its overflow margin, not just its member cells' own pixels")
+
 # ---- multiple captures: load order and picking up new ones made after the fact ----
 with tempfile.TemporaryDirectory() as d:
     os.makedirs(os.path.join(d, "capture"))

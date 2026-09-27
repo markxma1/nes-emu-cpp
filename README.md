@@ -215,14 +215,17 @@ screen; the game window can also be resized by dragging its corner. The old in-e
 ### Skins: HD sprites and backgrounds (optional)
 
 Replaces sprites and background tiles by higher-resolution pictures at display time, without
-touching the emulated NES. Press `/` in the emulator (off / 2x / 3x / 4x), then `'` to capture the
+touching the emulated NES. Press `/` in the emulator to cycle off / 2x / 3x / ... / 8x (higher only
+costs picture detail, not game speed - the layer composes on its own thread), then `'` to capture the
 current picture (one press = one frame, saved as `capture/cap_<frame number>.json + .png` - it never
 overwrites an earlier one, since real gameplay frame numbers keep increasing; press it again at a
 different moment, e.g. a boss fight or a different level, for another). Then edit the tiles in
 `python3 tools/nes_skin_editor.py build/skins/<game>`; captures made *after* the editor window is
 already open are picked up automatically within a second (or press its "Reload captures" button), and
 its **Frame** tab has a dropdown to switch between every capture you've made, each keeping its own
-tile-group state. Saved skin pictures appear in the running game within half a second. To get every
+tile-group state. The **Show: Sprites / Background** checkboxes there hide one layer (checkerboard) and
+make it un-clickable, so a click or drag can never grab the wrong layer by accident. Saved skin pictures
+appear in the running game within half a second. To get every
 individual tile the ROM contains without playing at all, run
 `python3 tools/nes_extract_chr.py game.nes build/skins/<game>` first (reads
 the ROM file directly; groups - which tiles combine into one character - still need at least one real

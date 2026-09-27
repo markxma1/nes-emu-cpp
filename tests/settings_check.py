@@ -24,13 +24,17 @@ with tempfile.TemporaryDirectory() as d:
     check(kb[(1, "A")] == "KEY_K" and (2, "A") not in kb, "keyboard defaults: player 1 set, player 2 empty")
 
     # values are clamped and round-trip
-    values = dict(s.DEFAULT_SETTINGS, scale=5, volume=40, two_pads=1)
+    values = dict(s.DEFAULT_SETTINGS, scale=5, volume=40, two_pads=1, hd_scale=6)
     s.save_settings(d, values)
     check(s.load_settings(d) == values, "settings round-trip")
     with open(os.path.join(d, "settings.cfg"), "w") as f:
-        f.write("scale=99\nvolume=-5\nviewer_scale=abc\n")
+        f.write("scale=99\nvolume=-5\nviewer_scale=abc\nhd_scale=99\n")
     got = s.load_settings(d)
-    check(got["scale"] == 8 and got["volume"] == 0 and got["viewer_scale"] == 1, "out-of-range / broken values are clamped or ignored")
+    check(got["scale"] == 8 and got["volume"] == 0 and got["viewer_scale"] == 1 and got["hd_scale"] == 8, "out-of-range / broken values are clamped or ignored")
+    # hd_scale must round-trip through save/load without being silently dropped (it was not in
+    # DEFAULT_SETTINGS/SETTINGS_RANGE at first, so the settings program would reset it to off on every save)
+    s.save_settings(d, dict(s.DEFAULT_SETTINGS, hd_scale=4))
+    check(s.load_settings(d)["hd_scale"] == 4, "hd_scale survives a save/load round trip, not silently reset to off")
 
     # bindings: player 2 gets a P2. prefix, a cleared player-1 button becomes NONE, one change keeps the rest
     kb = s.load_bindings(d, "keyboard")

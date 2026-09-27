@@ -15,6 +15,9 @@ How it fits together:
 Tiles that belong together (a 2x2 ship, a big enemy) can be made into a group with ONE picture (Frame tab:
 'Auto-group sprites' or 'Select tiles' + 'Group selected'); see EFFECTS.md.
 
+Sprites and background sitting close together can make it easy to click/select the wrong one - the Frame
+tab's 'Show: Sprites / Background' checkboxes hide one layer and make it un-clickable, so that can't happen.
+
 Want every individual tile the ROM contains, without playing the game at all? Run
 `python3 tools/nes_extract_chr.py game.nes build/skins/game` first - it reads the ROM file directly and
 writes synthetic captures this editor opens exactly like a real one. Groups still need one real capture.
@@ -29,7 +32,7 @@ import os
 import sys
 from collections import Counter
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 # ---------------------------------------------------------------------------------------------
 # Logic without any window (tested by tests/skin_editor_check.py)
@@ -134,10 +137,47 @@ def compose(capture, skins, scale, objects=None):
     return out.convert("RGB")
 
 
-def cell_at(capture, nes_x, nes_y):
-    """The cell whose tile shows at NES pixel (x, y): sprites first (they are on top), then background.
+# A visibly-not-part-of-the-game checkerboard (nothing in an NES picture looks like this), so a hidden
+# layer reads as "hidden", not as if the game genuinely drew flat grey there.
+_HIDE_CHECKER = ((90, 60, 90), (60, 40, 60))
+
+
+def hide_layers(capture, image, scale, show_sprites=True, show_background=True, objects=None):
+    """Returns a copy of the composed `image` (RGB, 256*scale x 240*scale, as compose() returns) with a
+    hidden layer's pixels painted over with a checkerboard, so sprites and background can be told apart
+    (and, combined with cell_at(..., layers=...)/cells_in_rect() filtering to the visible layer, clicking
+    can never land on the hidden one by accident). `objects` should be the same dict compose() was given:
+    a matched GROUP paints its own area (object_pixels(), which can extend beyond any single member
+    cell's own visible pixels with overflow) - without this, a hidden group's pixels would stay showing."""
+    if show_sprites and show_background:
+        return image
+    out = image.copy()
+
+    def blank(x, y):
+        colour = _HIDE_CHECKER[(x + y) % 2]
+        out.paste(colour, (x * scale, y * scale, (x + 1) * scale, (y + 1) * scale))
+
+    in_object = set()
+    for m in (match_objects(capture, objects) if objects else []):
+        if (m.obj.layer == "s" and show_sprites) or (m.obj.layer == "b" and show_background):
+            continue
+        in_object.update(m.members)
+        for (x, y) in object_pixels(capture, m):
+            blank(x, y)
+    for i, c in enumerate(capture.cells):
+        if i in in_object or (c["s"] and show_sprites) or (not c["s"] and show_background):
+            continue
+        for (x, y) in capture.visible(i):
+            blank(c["x"] + x, c["y"] + y)
+    return out
+
+
+def cell_at(capture, nes_x, nes_y, layers=(1, 0)):
+    """The cell whose tile shows at NES pixel (x, y): sprites first (they are on top), then background,
+    or only the given layer(s) (1 = sprites, 0 = background - see `layers`, e.g. (1,) to never hit
+    background, for a "hide background" view where accidentally clicking through it isn't possible).
     Returns (cell index, local x, local y in the flipped cell) or None."""
-    for want_sprite in (1, 0):
+    for want_sprite in layers:
         for i in range(len(capture.cells) - 1, -1, -1):
             c = capture.cells[i]
             if c["s"] != want_sprite:
@@ -960,9 +1000,28 @@ def run_ui(pack_dir):
     ttk.Button(fbar, text="Group selected", command=lambda: group_selected()).pack(side="left", padx=4)
     ttk.Button(fbar, text="Clear selection", command=lambda: clear_selection()).pack(side="left", padx=2)
     ttk.Button(fbar, text="Auto-group sprites", command=lambda: do_auto_group()).pack(side="left", padx=2)
+    fbar2 = ttk.Frame(frame_tab)
+    fbar2.pack(fill="x")
+    show_sprites_var = tk.IntVar(value=1)
+    show_bg_var = tk.IntVar(value=1)
+    ttk.Label(fbar2, text="Show:").pack(side="left")
+    ttk.Checkbutton(fbar2, text="Sprites", variable=show_sprites_var, command=lambda: redraw_frame()).pack(side="left", padx=(2, 8))
+    ttk.Checkbutton(fbar2, text="Background", variable=show_bg_var, command=lambda: redraw_frame()).pack(side="left")
+    ttk.Label(fbar2, text="  - hide the one you don't want to click, so a click/drag can never land on it by accident",
+             foreground="#555").pack(side="left")
     fcanvas = tk.Canvas(frame_tab, bg="#202020", highlightthickness=0)
     fcanvas.pack(fill="both", expand=True, pady=4)
     fphoto = {}
+
+    def hit_layers():
+        """Which layers clicks/drags are allowed to hit, matching what's currently shown - sprites checked
+        first when both are shown, same order cell_at() always used."""
+        layers = []
+        if show_sprites_var.get():
+            layers.append(1)
+        if show_bg_var.get():
+            layers.append(0)
+        return tuple(layers)
 
     def redraw_frame():
         if not captures:
@@ -972,6 +1031,7 @@ def run_ui(pack_dir):
         cap = captures[state["capture"]]
         scale = scale_var.get()
         img = compose(cap, all_skins(), scale, objects_view())
+        img = hide_layers(cap, img, scale, bool(show_sprites_var.get()), bool(show_bg_var.get()), objects_view())
         z = int(zoom_box.get())
         f = z / scale
         shown = img.resize((int(img.width * f), int(img.height * f)), Image.NEAREST if f >= 1 else Image.BOX)
@@ -1008,11 +1068,12 @@ def run_ui(pack_dir):
                 # a dragged rectangle ADDS the tiles it covers (one layer - see filter_one_layer) to the
                 # selection, so several drags (or a drag plus single clicks) can build up one group step by step
                 found = cells_in_rect(cap, min(x0, event.x) // z, min(y0, event.y) // z, max(x0, event.x) // z, max(y0, event.y) // z)
+                found = {i for i in found if cap.cells[i]["s"] in hit_layers()}  # never a hidden layer
                 selection.update(filter_one_layer(cap, found))
             else:
                 # a plain click (no real drag) toggles the exact tile under the cursor - the precise way to pick
                 # one specific sprite among several identical-looking ones, or to drop a wrongly included tile
-                hit = cell_at(cap, event.x // z, event.y // z)
+                hit = cell_at(cap, event.x // z, event.y // z, layers=hit_layers())
                 if hit:
                     i = hit[0]
                     (selection.discard if i in selection else selection.add)(i)
@@ -1085,7 +1146,8 @@ def run_ui(pack_dir):
         cap = captures[state["capture"]]
         z = int(zoom_box.get())
         nes_x, nes_y = event.x // z, event.y // z
-        matches = match_objects(cap, objects_view())
+        visible_layers = {"s" if v else "b" for v in hit_layers()}
+        matches = [m for m in match_objects(cap, objects_view()) if m.obj.layer in visible_layers]
         hit_match = match_at(cap, matches, nes_x, nes_y)
         if hit_match is not None:
             key = "obj:" + hit_match.obj.name
@@ -1097,7 +1159,7 @@ def run_ui(pack_dir):
                 redraw_frame()
                 fill_list_keep()
             return
-        hit = cell_at(cap, nes_x, nes_y)
+        hit = cell_at(cap, nes_x, nes_y, layers=hit_layers())
         if not hit:
             return
         i, lx, ly = hit

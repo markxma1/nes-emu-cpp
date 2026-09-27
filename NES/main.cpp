@@ -200,10 +200,14 @@ namespace
         NES::HdLayer::SetPackDir("skins/" + stem);
     }
 
-    /// H: skin layer off -> 2x -> 3x -> 4x -> off.
+    /// /: skin layer off -> 2x -> 3x -> ... -> 8x -> off. Higher factors cost real detail, not real-time
+    /// speed: the layer composes on its own thread (see EFFECTS.md), so a slower compose only means the
+    /// picture updates a little less often, never that the game itself slows down (measured: 8x costs the
+    /// emulation thread about 0.3 ms/frame more than off, out of the 16.6 ms a real NES frame allows).
     void CycleHd()
     {
-        const int next[9] = { 2, 0, 3, 4, 0, 0, 0, 0, 0 };
+        // Indexed by the CURRENT scale (0 = off, 1 unused): next[0]=2 (off->2x), next[2]=3, ... next[8]=0.
+        const int next[9] = { 2, 2, 3, 4, 5, 6, 7, 8, 0 };
         settings.hdScale = next[std::clamp(settings.hdScale, 0, 8)];
         settings.Save();
         settingsFileTime = NES::Settings::ModifiedTime(NES::Settings::kFile);
@@ -1483,7 +1487,7 @@ int main(int argc, char** argv)
               << std::endl;
     std::cout << "Press L to pick a different ROM (looked for next to the executable and in ./roms)."
               << std::endl;
-    std::cout << "/ = skin layer (off/2x/3x/4x), ' = capture the current picture for the skin editor (tools/nes_skin_editor.py)." << std::endl;
+    std::cout << "/ = skin layer (off/2x/.../8x), ' = capture the current picture for the skin editor (tools/nes_skin_editor.py)." << std::endl;
     std::cout << "Tab = settings program (buttons, window size, volume), , and . = smaller/larger window, < and > = debug windows, \\ = full screen." << std::endl;
     std::cout << "Speed: + doubles, - halves, 0 resets to real NTSC (1x)." << std::endl;
     std::cout << "Save states: 1-9 picks a slot (default 1), Q saves, E loads." << std::endl;

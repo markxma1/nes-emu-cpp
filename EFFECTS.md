@@ -41,7 +41,7 @@ paint garbage - the worst case is "this tile keeps its original look in this fra
 
 ## What works now (prototype)
 
-- `/` in the emulator: skin layer off / 2x / 3x / 4x (`hd_scale` in `settings.cfg`, also in the settings program).
+- `/` in the emulator: skin layer off / 2x / 3x / ... / 8x (`hd_scale` in `settings.cfg`, also as a slider in the settings program's Display tab). Higher only costs detail, not game speed: the layer composes on its own thread (see "Speed" below), so a slower compose just updates the picture a little less often - measured, 8x costs the emulation thread about 0.3 ms more per frame than off, out of the 16.6 ms a real NES frame allows.
 - Skin packs live in `skins/<rom name>/tiles/`; the folder is watched, so saving in the editor changes the running game within half a second.
 - `'` (apostrophe) captures the current picture (`skins/<rom>/capture/cap_<frame>.json + .png`) for the editor - press it as many times as you like, at different moments; each real gameplay capture uses the actual frame number as its file name, so it never overwrites an earlier one. The editor's Frame tab lists every capture in a dropdown (sorted by when it happened, not by file name text) and picks up new ones written after the editor was already opened, automatically within a second or via its "Reload captures" button.
 - Sprites (8x8 and 8x16) and background tiles are replaced by tile; transparency (alpha) is respected.
@@ -107,6 +107,12 @@ palette (the player ship, big enemies); check the green outlines and delete wron
 lets you drag a rectangle around the tiles of one object (sprites or background) and **Group selected** makes
 the group (you choose the name, overflow and margin). Groups appear in the tile list at the top and can be
 painted like tiles, also directly on the captured picture.
+
+The **Show: Sprites / Background** checkboxes hide one layer in the Frame picture (painted over with a
+checkerboard) and, more importantly, make it impossible to click - so a click or drag can never land on
+the hidden layer by accident, which used to make it easy to grab a background tile while meaning to
+select a sprite (or the other way round) when the two sit close together. Hiding a group's layer blanks
+its whole painted area (including an overflow margin), not just its member tiles' own pixels.
 
 ## Files
 
