@@ -144,6 +144,26 @@ def cell_at(capture, nes_x, nes_y):
     return None
 
 
+def cells_in_rect(capture, x0, y0, x1, y1):
+    """Indices of every cell that has a visible pixel inside the rectangle (x0..x1, y0..y1, NES pixels)."""
+    found = set()
+    for i, c in enumerate(capture.cells):
+        for (px, py) in capture.visible(i):
+            if x0 <= c["x"] + px <= x1 and y0 <= c["y"] + py <= y1:
+                found.add(i)
+                break
+    return found
+
+
+def filter_one_layer(capture, indices):
+    """Keeps one layer only: sprites if the selection has any, background otherwise. A rectangle dragged around
+    a sprite (which is rarely a filled 8x8/16x16 block) almost always also touches background pixels peeking
+    through its corners; without this, grouping such a selection fails ("must be all sprites or background")
+    even though the user only meant to select the sprite."""
+    sprites = {i for i in indices if capture.cells[i]["s"]}
+    return sprites if sprites else set(indices)
+
+
 # ---------------------------------------------------------------------------------------------
 # Objects: groups of tiles with one picture (same rules as HdLayer::PaintObjects in C++)
 # ---------------------------------------------------------------------------------------------
@@ -893,8 +913,9 @@ def run_ui(pack_dir):
     zoom_box.pack(side="left")
     mode_var = tk.StringVar(value="paint")
     ttk.Radiobutton(fbar, text="Paint", variable=mode_var, value="paint").pack(side="left", padx=(12, 2))
-    ttk.Radiobutton(fbar, text="Select tiles (drag a rectangle)", variable=mode_var, value="select").pack(side="left", padx=2)
+    ttk.Radiobutton(fbar, text="Select tiles (click one, or drag a rectangle)", variable=mode_var, value="select").pack(side="left", padx=2)
     ttk.Button(fbar, text="Group selected", command=lambda: group_selected()).pack(side="left", padx=4)
+    ttk.Button(fbar, text="Clear selection", command=lambda: clear_selection()).pack(side="left", padx=2)
     ttk.Button(fbar, text="Auto-group sprites", command=lambda: do_auto_group()).pack(side="left", padx=2)
     fcanvas = tk.Canvas(frame_tab, bg="#202020", highlightthickness=0)
     fcanvas.pack(fill="both", expand=True, pady=4)
@@ -923,36 +944,51 @@ def run_ui(pack_dir):
             fcanvas.create_rectangle(c["x"] * z, c["y"] * z, (c["x"] + 8) * z, (c["y"] + 8) * z, outline="#ffff00", width=2)
 
     drag = {}
-
-    def cells_in_rect(cap, x0, y0, x1, y1):
-        found = set()
-        for i, c in enumerate(cap.cells):
-            for (px, py) in cap.visible(i):
-                if x0 <= c["x"] + px <= x1 and y0 <= c["y"] + py <= y1:
-                    found.add(i)
-                    break
-        return found
+    kDragThreshold = 4  # pixels of mouse movement below this: treat as a click, not a drag
 
     def on_select_mouse(event, phase):
         cap = captures[state["capture"]]
         z = int(zoom_box.get())
         if phase == "down":
             drag["start"] = (event.x, event.y)
-            selection.clear()
+            drag["moved"] = False
         if "start" not in drag:
             return
         x0, y0 = drag["start"]
+        if abs(event.x - x0) > kDragThreshold or abs(event.y - y0) > kDragThreshold:
+            drag["moved"] = True
         fcanvas.delete("drag")
-        fcanvas.create_rectangle(x0, y0, event.x, event.y, outline="#ffff00", dash=(3, 3), tags="drag")
+        if drag["moved"]:
+            fcanvas.create_rectangle(x0, y0, event.x, event.y, outline="#ffff00", dash=(3, 3), tags="drag")
         if phase == "up":
-            selection.update(cells_in_rect(cap, min(x0, event.x) // z, min(y0, event.y) // z, max(x0, event.x) // z, max(y0, event.y) // z))
+            if drag["moved"]:
+                # a dragged rectangle ADDS the tiles it covers (one layer - see filter_one_layer) to the
+                # selection, so several drags (or a drag plus single clicks) can build up one group step by step
+                found = cells_in_rect(cap, min(x0, event.x) // z, min(y0, event.y) // z, max(x0, event.x) // z, max(y0, event.y) // z)
+                selection.update(filter_one_layer(cap, found))
+            else:
+                # a plain click (no real drag) toggles the exact tile under the cursor - the precise way to pick
+                # one specific sprite among several identical-looking ones, or to drop a wrongly included tile
+                hit = cell_at(cap, event.x // z, event.y // z)
+                if hit:
+                    i = hit[0]
+                    (selection.discard if i in selection else selection.add)(i)
             drag.clear()
-            status.set("%d tiles selected. Click 'Group selected' to make one object of them." % len(selection))
+            n_sprite = sum(1 for i in selection if cap.cells[i]["s"])
+            n_bg = len(selection) - n_sprite
+            status.set("%d tile(s) selected (%s). Click a tile to add/remove just that one, drag a rectangle for "
+                       "an area, then 'Group selected'." % (len(selection), "sprites" if n_sprite else "background" if n_bg else "none"))
             redraw_frame()
+
+    def clear_selection():
+        selection.clear()
+        redraw_frame()
+        status.set("Selection cleared.")
 
     def group_selected():
         if not captures or not selection:
-            status.set("Nothing selected: switch to 'Select tiles' and drag a rectangle around the tiles of one object.")
+            status.set("Nothing selected: switch to 'Select tiles', then click each tile of the object (or drag a "
+                       "rectangle around it), and 'Group selected'.")
             return
         cap = captures[state["capture"]]
         from tkinter import simpledialog

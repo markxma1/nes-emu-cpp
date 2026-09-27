@@ -93,6 +93,57 @@ def make_cell(x, y, hash_name, fh=0, fv=0, s=1, pal=0):
             "vis": 64, "rgb": [[0, 0, 0], [200, 200, 200], [0, 0, 0], [0, 0, 0]]}
 
 
+# ---- selecting tiles in the Frame tab (cells_in_rect / filter_one_layer): the actual bug reported by the
+# user - a rectangle dragged tightly around a sprite also touches background pixels peeking through its
+# corners (a sprite is rarely a filled rectangle), so grouping used to fail with "must be all sprites or
+# background" even though the user only meant to select the sprite. ----
+with tempfile.TemporaryDirectory() as d:
+    # a diamond-shaped 8x8 sprite (only the middle 4 pixels of each half-row opaque, corners transparent) at
+    # (20, 20), sitting over a background of fully opaque tiles (every background pixel "visible" everywhere,
+    # as real NES background tiles always are - there is no transparent index 0 for the background layer).
+    diamond = bytes([0b00011000, 0b00111100, 0b01111110, 0b11111111,
+                     0b11111111, 0b01111110, 0b00111100, 0b00011000] + [0] * 8)
+    frame = Image.new("RGB", (256, 240), (10, 10, 10))
+    for y in range(8):
+        for x in range(8):
+            if e.pixel_index(diamond, x, y):
+                frame.putpixel((20 + x, 20 + y), (200, 200, 200))
+    bg_cells = [make_cell(bx, by, "bg", s=0) for bx in (16, 24) for by in (16, 24)]
+    for c in bg_cells:
+        for y in range(8):
+            for x in range(8):
+                frame.putpixel((c["x"] + x, c["y"] + y), (200, 200, 200))  # background fills the whole tile
+    sprite_cell = {**make_cell(20, 20, "diamond"), "bytes": diamond.hex()}
+    os.makedirs(os.path.join(d, "capture"))
+    frame.save(os.path.join(d, "capture", "cap_1.png"))
+    with open(os.path.join(d, "capture", "cap_1.json"), "w") as f:
+        json.dump({"frame": 1, "cells": bg_cells + [sprite_cell]}, f)
+    cap = e.load_captures(d)[0]
+
+    # a rectangle drawn tightly around the sprite's own 8x8 box still overlaps the background tiles behind
+    # its transparent corners
+    tight = e.cells_in_rect(cap, 20, 20, 27, 27)
+    check(any(cap.cells[i]["s"] for i in tight) and any(not cap.cells[i]["s"] for i in tight),
+          "cells_in_rect: a tight box around the sprite still picks up background behind its transparent corners (reproduces the reported bug)")
+    only_sprite = e.filter_one_layer(cap, tight)
+    check(only_sprite == {len(bg_cells)}, "filter_one_layer: keeps only the sprite when the selection has one (drops the background bleed)")
+
+    # a rectangle over an area with no sprite keeps the background as before
+    bg_only = e.cells_in_rect(cap, 16, 16, 31, 31)
+    bg_only.discard(len(bg_cells))  # exclude the sprite itself for this check
+    check(e.filter_one_layer(cap, bg_only) == bg_only, "filter_one_layer: a selection with no sprite is left as background, unfiltered")
+
+    # end to end: grouping the raw (unfiltered) rectangle selection fails exactly as the user saw it; grouping
+    # the filtered one succeeds
+    try:
+        e.object_from_cells(cap, sorted(tight), 2, "raw")
+        check(False, "object_from_cells: an unfiltered selection mixing sprite and background must still be rejected")
+    except ValueError:
+        pass
+    grouped = e.object_from_cells(cap, sorted(only_sprite), 2, "fixed")
+    check(grouped.width == 8 and grouped.height == 8, "object_from_cells: the filtered (sprite-only) selection groups fine")
+
+
 with tempfile.TemporaryDirectory() as d:
     frame = Image.new("RGB", (256, 240), (0, 0, 0))
     # a 2x1 ship "aa","bb" at (20,30), the same ship mirrored at (100,50), and a lone "aa" at (150,150)
