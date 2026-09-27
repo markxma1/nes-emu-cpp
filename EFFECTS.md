@@ -43,7 +43,7 @@ paint garbage - the worst case is "this tile keeps its original look in this fra
 
 - `/` in the emulator: skin layer off / 2x / 3x / 4x (`hd_scale` in `settings.cfg`, also in the settings program).
 - Skin packs live in `skins/<rom name>/tiles/`; the folder is watched, so saving in the editor changes the running game within half a second.
-- `'` (apostrophe) captures the current picture (`skins/<rom>/capture/cap_<frame>.json + .png`) for the editor.
+- `'` (apostrophe) captures the current picture (`skins/<rom>/capture/cap_<frame>.json + .png`) for the editor - press it as many times as you like, at different moments; each real gameplay capture uses the actual frame number as its file name, so it never overwrites an earlier one. The editor's Frame tab lists every capture in a dropdown (sorted by when it happened, not by file name text) and picks up new ones written after the editor was already opened, automatically within a second or via its "Reload captures" button.
 - Sprites (8x8 and 8x16) and background tiles are replaced by tile; transparency (alpha) is respected.
 - `tools/nes_skin_editor.py`: list of all tiles seen in the captures, pixel editor (pencil, eraser, fill, picker, undo), painting directly on the captured picture (**Frame** tab, flips and shared tiles handled), "start from original", import/export PNG, and **sheet export/import** to send all tiles through any external AI upscaler / image editor and get them back.
 

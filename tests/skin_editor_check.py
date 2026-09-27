@@ -86,6 +86,39 @@ with tempfile.TemporaryDirectory() as d:
     r, g, b = pieces["aaaa"].getpixel((0, 8))[:3]
 check(r > 200 and g < 60 and b < 60, "import_sheet: colours survive a 2x enlarged sheet (got %s)" % ((r, g, b),))
 
+# ---- multiple captures: load order and picking up new ones made after the fact ----
+with tempfile.TemporaryDirectory() as d:
+    os.makedirs(os.path.join(d, "capture"))
+
+    def write_capture(stem, frame_number):
+        Image.new("RGB", (256, 240), (0, 0, 0)).save(os.path.join(d, "capture", stem + ".png"))
+        with open(os.path.join(d, "capture", stem + ".json"), "w") as f:
+            json.dump({"frame": frame_number, "cells": []}, f)
+
+    # frame numbers whose filenames do NOT sort the same way as their numeric value ("cap_100" < "cap_20"
+    # < "cap_9" as plain text) - load_captures must still show them in real chronological order
+    write_capture("cap_100", 100)
+    write_capture("cap_9", 9)
+    write_capture("cap_20", 20)
+    order_caps = e.load_captures(d)
+    check([c.frame_number for c in order_caps] == [9, 20, 100],
+          "load_captures: real captures sort by their actual frame number, not by filename text (got %r)" % [c.frame_number for c in order_caps])
+
+    # synthetic pages (negative frame numbers from nes_extract_chr.py) sort by page, not by raw frame number
+    # (-2 < -1, so a plain ascending sort would show page 1 before page 0)
+    write_capture("cap_chr1", -2)
+    write_capture("cap_chr0", -1)
+    order_caps2 = e.load_captures(d)
+    synthetic = [c.frame_number for c in order_caps2 if c.frame_number < 0]
+    check(synthetic == [-1, -2], "load_captures: synthetic pages sort in page order (page 0 = frame -1 first), got %r" % synthetic)
+
+    # capture_paths() (what the editor's live-reload polls) reflects a file added after the first load
+    before = e.capture_paths(d)
+    write_capture("cap_500", 500)
+    after = e.capture_paths(d)
+    check(len(after) == len(before) + 1, "capture_paths: a capture written after the fact is found on the next scan")
+    check(e.load_captures(d)[-1].frame_number == 500, "load_captures: picks up the newly written capture too, in its right chronological place")
+
 # ---- objects: groups of tiles with one picture ----
 def make_cell(x, y, hash_name, fh=0, fv=0, s=1, pal=0):
     tile = bytes([0xFF] * 8 + [0x00] * 8)   # solid index 1

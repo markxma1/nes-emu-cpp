@@ -513,13 +513,31 @@ def import_sheet(path, layout, size):
     return result
 
 
+def capture_paths(pack_dir):
+    """The capture/*.json files currently on disk, in no particular order (see load_captures for the
+    order they should be shown in)."""
+    return sorted(glob.glob(os.path.join(pack_dir, "capture", "cap_*.json")))
+
+
+def _capture_order_key(capture):
+    """Real captures (frame_number >= 0, from playing the game) sort chronologically; synthetic ones
+    from nes_extract_chr.py (frame_number = -(page+1)) sort by page (0, 1, 2, ...) - plain ascending
+    frame_number would show page 1 before page 0, since -2 < -1."""
+    n = capture.frame_number
+    return n if n >= 0 else -(n + 1)
+
+
 def load_captures(pack_dir):
+    """Every capture in the pack, in display order (see _capture_order_key) - filenames alone don't sort
+    right (e.g. "cap_1300" would come before "cap_200" as plain text once frame numbers reach different
+    digit counts), so this loads them all and then sorts by the frame number actually stored inside."""
     caps = []
-    for path in sorted(glob.glob(os.path.join(pack_dir, "capture", "cap_*.json"))):
+    for path in capture_paths(pack_dir):
         try:
             caps.append(Capture(path))
         except (OSError, ValueError, KeyError):
             pass
+    caps.sort(key=_capture_order_key)
     return caps
 
 
@@ -911,6 +929,7 @@ def run_ui(pack_dir):
     fbar.pack(fill="x")
     cap_box = ttk.Combobox(fbar, state="readonly", width=24)
     cap_box.pack(side="left")
+    ttk.Button(fbar, text="Reload captures", command=lambda: reload_captures(True)).pack(side="left", padx=2)
     ttk.Label(fbar, text="  zoom").pack(side="left")
     zoom_box = ttk.Combobox(fbar, state="readonly", width=4, values=["2", "3", "4"])
     zoom_box.set("3")
@@ -1097,6 +1116,35 @@ def run_ui(pack_dir):
         state["capture"] = cap_box.current()
         redraw_frame()
 
+    def reload_captures(announce=False):
+        """Re-scans capture/ for files this window hasn't loaded yet (e.g. you pressed ' in the emulator,
+        or ran nes_extract_chr.py, after this editor was already open - captures/skins/objects are only
+        read once at startup otherwise). Keeps looking at the same capture if it still exists."""
+        on_disk = capture_paths(pack_dir)
+        known = [c.path for c in captures]
+        if on_disk == known and not announce:
+            return False
+        current_path = captures[state["capture"]].path if captures else None
+        captures[:] = load_captures(pack_dir)
+        tiles.clear()
+        tiles.update(collect_tiles(captures))
+        if current_path and any(c.path == current_path for c in captures):
+            state["capture"] = next(i for i, c in enumerate(captures) if c.path == current_path)
+        else:
+            state["capture"] = len(captures) - 1 if captures else 0  # jump to the newest one
+        fill_captures()
+        fill_list_keep()
+        redraw_frame()
+        if announce:
+            added = len(captures) - len(known)
+            status.set("Reloaded: %d capture(s) (%+d new)." % (len(captures), added) if added else
+                       "Reloaded: no new captures found (press ' in the emulator, or run nes_extract_chr.py, first).")
+        return True
+
+    def poll_captures():
+        reload_captures(False)
+        root.after(1000, poll_captures)
+
     cap_box.bind("<<ComboboxSelected>>", on_cap_changed)
     zoom_box.bind("<<ComboboxSelected>>", lambda e: redraw_frame())
     notebook.bind("<<NotebookTabChanged>>", lambda e: redraw_frame() if notebook.index("current") == 1 else redraw_tile())
@@ -1144,6 +1192,7 @@ def run_ui(pack_dir):
         select_hash(order[0])
         listbox.selection_set(0)
     redraw_frame()
+    poll_captures()
     root.mainloop()
 
 
