@@ -197,6 +197,17 @@ with tempfile.TemporaryDirectory() as d:
     obj = e.object_from_cells(cap, [0, 1], 2, "ship")
     check(obj.width == 16 and obj.height == 8 and len(obj.tiles) == 2 and obj.picture.size == (32, 16), "object_from_cells: size and picture")
     check(e.object_from_cells(cap, [0, 4], 2, "far").width == 138, "object_from_cells: bounding box of far apart tiles")
+
+    # native_size: the real bug reported live - a non-square group (most of them are) got forced into a
+    # square picture by Import PNG / the sheet workflow, stretching/squashing the artwork. A tile-sized
+    # square is only correct for the rare case a group happens to be exactly as wide as it is tall.
+    non_square = e.object_from_cells(cap, [0, 1], 4, "wide")  # 16 wide x 8 tall (two tiles side by side)
+    check(non_square.native_size(4) == (64, 32), "Obj.native_size: not forced square for a non-square group (got %r)" % (non_square.native_size(4),))
+    check(non_square.native_size(4) != (32, 32), "Obj.native_size: must NOT be a plain tile-sized square (the actual bug)")
+    non_square.margin, non_square.overflow = 3, True
+    check(non_square.native_size(2) == ((16 + 6) * 2, (8 + 6) * 2), "Obj.native_size: overflow adds the margin on every side")
+    non_square.overflow = False
+    check(non_square.native_size(2) == (16 * 2, 8 * 2), "Obj.native_size: without overflow the margin is not reserved in the picture")
     try:
         e.object_from_cells(cap, [0, 1], 2, "x")
         e.object_from_cells(cap, [], 2, "x")

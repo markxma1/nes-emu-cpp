@@ -185,6 +185,13 @@ class Obj:
     def k(self):
         return self.picture.width // (self.width + 2 * self.margin)
 
+    def native_size(self, scale):
+        """The (width, height) in pixels this object's picture should have at a given per-tile scale -
+        generally NOT square (e.g. a wide, flat enemy), unlike a plain tile. Only `overflow` objects
+        actually reserve room for their margin in the picture; without overflow the margin is unused."""
+        m = self.margin if self.overflow else 0
+        return ((self.width + 2 * m) * scale, (self.height + 2 * m) * scale)
+
     def to_text(self):
         lines = ["layer " + self.layer, "size %d %d" % (self.width, self.height), "margin %d" % self.margin,
                  "overflow %d" % (1 if self.overflow else 0)]
@@ -588,6 +595,19 @@ def run_ui(pack_dir):
             return "%s_%s%d" % (h, kind, pal)
         return h
 
+    def target_picture_size(h):
+        """The (width, height) in pixels a picture for `h` should have at the current tile-size setting:
+        a tile is always square (8*scale); an object is (width, height) - each plus 2*margin when it has
+        overflow - times scale, which is generally NOT square. Getting this wrong (e.g. always forcing a
+        square size) squishes/stretches an object's artwork - this is what Import PNG and the sheet
+        export/import used to do for objects before this existed."""
+        scale = scale_var.get()
+        if is_object(h):
+            obj = objects.get(h[4:])
+            if obj is not None:
+                return obj.native_size(scale)
+        return (8 * scale, 8 * scale)
+
     def current_image(h, create=True):
         stem = stem_for(h)
         if stem in work:
@@ -856,8 +876,8 @@ def run_ui(pack_dir):
         if h and path:
             stem = stem_for(h)
             push_undo(stem)
-            size = 8 * scale_var.get()
-            work[stem] = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
+            size = target_picture_size(h)  # square for a tile, but an object is usually NOT square
+            work[stem] = Image.open(path).convert("RGBA").resize(size, Image.LANCZOS)
             redraw_tile()
             fill_list_keep()
 
@@ -1154,10 +1174,16 @@ def run_ui(pack_dir):
         path = filedialog.asksaveasfilename(defaultextension=".png", title="Save sheet for an AI upscaler / image editor")
         if not path:
             return
-        layout = export_sheet(tiles, all_skins(), path, list(order))
+        # Groups are excluded: the sheet uses one uniform square cell per entry, but a group's picture is
+        # usually not square (e.g. a wide, flat enemy) - forcing it into a square cell would stretch or
+        # squash it. Paint/import a group's own picture directly (Tile tab: Import PNG..., or paint on it).
+        tile_only = [h for h in order if not h.startswith("obj:")]
+        skipped = len(order) - len(tile_only)
+        layout = export_sheet(tiles, all_skins(), path, tile_only)
         with open(os.path.splitext(path)[0] + ".layout.json", "w", encoding="utf-8") as f:
             json.dump(layout, f)
-        status.set("Sheet written: %s (+ .layout.json). Process it, then use 'Import sheet'." % path)
+        status.set("Sheet written: %s (+ .layout.json)%s. Process it, then use 'Import sheet'." %
+                   (path, " - %d group(s) skipped, they don't fit a square grid" % skipped if skipped else ""))
 
     def sheet_import():
         path = filedialog.askopenfilename(title="Processed sheet (the .layout.json must sit next to the original name)")
@@ -1168,11 +1194,16 @@ def run_ui(pack_dir):
             return
         with open(layout_path, encoding="utf-8") as f:
             layout = json.load(f)
+        # A .layout.json from before groups were excluded from sheets may still list "obj:" entries;
+        # skip them here too rather than importing a group at the wrong (forced-square) size.
+        skipped = sum(1 for h in layout.get("order", []) if h.startswith("obj:"))
+        layout["order"] = [h for h in layout.get("order", []) if not h.startswith("obj:")]
         pieces = import_sheet(path, layout, 8 * scale_var.get())
         for h, img in pieces.items():
             push_undo(h)
             work[h] = img
-        status.set("Imported %d tiles (not saved yet)." % len(pieces))
+        status.set("Imported %d tiles (not saved yet)%s." %
+                   (len(pieces), " - %d group(s) in that layout skipped" % skipped if skipped else ""))
         fill_list()
         redraw_tile()
 

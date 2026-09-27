@@ -1882,6 +1882,25 @@ namespace
         HdLayer::PaintCell(hd, scale, cell, skin);
         Check(hd.at<cv::Vec3b>((20 + 0) * scale, (10 + 7) * scale) == cv::Vec3b(255, 255, 255), "HD: skin pixel of a flipped tile lands on the mirrored screen pixel");
         Check(hd.at<cv::Vec3b>(20 * scale, 10 * scale) == cv::Vec3b(0, 0, 0), "HD: the unflipped position stays untouched");
+
+        // Partial-alpha and full-opacity painting against a KNOWN, non-black/non-white background - a bug
+        // reported live ("half-alpha paint shows the original", "opaque paint shows black over it") would
+        // show up here as a wrong result rather than as a visual guess against real game graphics.
+        HdCell single; single.sprite = true; single.x = 0; single.y = 0; single.visibleMask = 1; // just pixel (0,0)
+        cv::Mat bg(1, 1, CV_8UC3, cv::Scalar(200, 150, 100)); // known background colour (B,G,R), not 0 or 255
+        cv::Mat halfAlpha(1, 1, CV_8UC4, cv::Scalar(50, 60, 70, 128));
+        cv::Mat blended = bg.clone();
+        HdLayer::PaintCell(blended, 1, single, halfAlpha);
+        const int expB = (50 * 128 + 200 * 127) / 255, expG = (60 * 128 + 150 * 127) / 255, expR = (70 * 128 + 100 * 127) / 255;
+        cv::Vec3b gotHalf = blended.at<cv::Vec3b>(0, 0);
+        Check(gotHalf == cv::Vec3b(expB, expG, expR),
+              "HD: half-alpha paint blends WITH the background (expected " + std::to_string(expB) + "," + std::to_string(expG) + "," +
+                  std::to_string(expR) + ", got " + std::to_string(gotHalf[0]) + "," + std::to_string(gotHalf[1]) + "," + std::to_string(gotHalf[2]) + ")");
+
+        cv::Mat fullAlpha(1, 1, CV_8UC4, cv::Scalar(50, 60, 70, 255));
+        cv::Mat opaque = bg.clone();
+        HdLayer::PaintCell(opaque, 1, single, fullAlpha);
+        Check(opaque.at<cv::Vec3b>(0, 0) == cv::Vec3b(50, 60, 70), "HD: fully opaque paint shows the paint's own colour, not black");
     }
 
     /// Palette RAM values above $3F (a game may write any byte; the PPU uses the low 6 bits) must not index
