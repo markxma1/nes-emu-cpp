@@ -236,7 +236,14 @@ class Obj:
         lines = ["layer " + self.layer, "size %d %d" % (self.width, self.height), "margin %d" % self.margin,
                  "overflow %d" % (1 if self.overflow else 0)]
         for t in self.tiles:
-            lines.append("tile %d %d %s %d %d" % (t["dx"], t["dy"], t["hash"], t["fh"], t["fv"]))
+            pal = t.get("pal")
+            # the palette field is optional (6th number): a real game rarely reuses one tile shape for two
+            # differently-coloured enemies, but Galaga's entrance animation does exactly that (the same
+            # background tiles, just a different palette, for the green and the blue version of one enemy) -
+            # found live: a group made without this matched BOTH colours and painted the wrong one blue too.
+            # A tile with no recorded palette (old files saved before this existed) matches any palette.
+            lines.append("tile %d %d %s %d %d%s" % (t["dx"], t["dy"], t["hash"], t["fh"], t["fv"],
+                                                     "" if pal is None else " %d" % pal))
         return "\n".join(lines) + "\n"
 
 
@@ -255,7 +262,8 @@ def parse_object(name, text, picture):
         elif parts[0] == "overflow":
             overflow = parts[1] != "0"
         elif parts[0] == "tile":
-            tiles.append({"dx": int(parts[1]), "dy": int(parts[2]), "hash": parts[3], "fh": int(parts[4]), "fv": int(parts[5])})
+            tiles.append({"dx": int(parts[1]), "dy": int(parts[2]), "hash": parts[3], "fh": int(parts[4]), "fv": int(parts[5]),
+                         "pal": int(parts[6]) if len(parts) > 6 else None})
     if size is None or not tiles:
         raise ValueError("bad object file")
     return Obj(name, layer, size[0], size[1], tiles, picture, margin, overflow)
@@ -301,6 +309,16 @@ class Match:
         self.obj, self.members, self.ox, self.oy, self.fh, self.fv = obj, members, ox, oy, fh, fv
 
 
+def _pal_matches(tile, cell):
+    """True if a captured tile's own palette (`tile["pal"]`, recorded when the group was made) does not
+    rule out this cell. None (a tile from a .obj file saved before palette-matching existed) matches any
+    palette, unchanged old behaviour. A recorded palette must match exactly - this is what keeps two
+    differently-coloured enemies that happen to share the same tile shapes (found live: Galaga's entrance
+    animation draws its blue and green version of one enemy from the very same tiles, just a different
+    palette) from being treated as the same group and getting the same skin."""
+    return tile.get("pal") is None or tile["pal"] == cell["pal"]
+
+
 def match_objects(capture, objects):
     """Every place in the capture where all tiles of an object are present (each cell belongs to one match)."""
     cells = capture.cells
@@ -313,7 +331,7 @@ def match_objects(capture, objects):
         sprite = 1 if obj.layer == "s" else 0
         anchor = obj.tiles[0]
         for first, a in enumerate(cells):
-            if first in consumed or a["s"] != sprite or a["hash"] != anchor["hash"]:
+            if first in consumed or a["s"] != sprite or a["hash"] != anchor["hash"] or not _pal_matches(anchor, a):
                 continue
             for variant in range(4):
                 fh, fv = variant & 1, (variant >> 1) & 1
@@ -329,7 +347,7 @@ def match_objects(capture, objects):
                     for i in at.get((sprite, x, y), []):
                         c = cells[i]
                         if i not in consumed and i not in members and c["hash"] == t["hash"] \
-                                and c["fh"] == (t["fh"] ^ fh) and c["fv"] == (t["fv"] ^ fv):
+                                and c["fh"] == (t["fh"] ^ fh) and c["fv"] == (t["fv"] ^ fv) and _pal_matches(t, c):
                             found = i
                             break
                     if found is None:
@@ -404,7 +422,7 @@ def object_from_cells(capture, indices, scale, name, margin=0, overflow=False):
     pic = Image.new("RGBA", ((width + 2 * m) * scale, (height + 2 * m) * scale), (0, 0, 0, 0))
     tiles = []
     for c in cells:
-        tiles.append({"dx": c["x"] - minx, "dy": c["y"] - miny, "hash": c["hash"], "fh": c["fh"], "fv": c["fv"]})
+        tiles.append({"dx": c["x"] - minx, "dy": c["y"] - miny, "hash": c["hash"], "fh": c["fh"], "fv": c["fv"], "pal": c["pal"]})
         img = tile_rgba(bytes.fromhex(c["bytes"]), c["rgb"], c["s"], scale, bool(c["fh"]), bool(c["fv"]))
         pic.paste(img, ((c["x"] - minx + m) * scale, (c["y"] - miny + m) * scale), img)
     if len({(t["dx"], t["dy"]) for t in tiles}) != len(tiles):

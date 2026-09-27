@@ -66,12 +66,18 @@ namespace NES
     ///     size 16 16         (width and height of the group in NES pixels)
     ///     margin 0           (extra NES pixels of picture on every side, only used with overflow)
     ///     overflow 0         (1: paint the whole picture, also beyond the tiles' own pixels)
-    ///     tile <dx> <dy> <hash> <flipH> <flipV>     (one line per tile, position relative to the group's top-left)
+    ///     tile <dx> <dy> <hash> <flipH> <flipV> [<palette>]     (position relative to the group's top-left;
+    ///                                                           palette is optional - a real game rarely reuses
+    ///                                                           one tile shape for two differently-coloured
+    ///                                                           enemies, but Galaga's entrance animation does
+    ///                                                           exactly that, so a tile that recorded its real
+    ///                                                           palette only matches that one; no palette
+    ///                                                           recorded (older files) matches any palette)
     /// The group is found in a frame when all its tiles are present at these relative positions, also mirrored
     /// horizontally and/or vertically (all flip flags of the tiles then toggle together).
     struct HdObject
     {
-        struct Tile { int dx = 0, dy = 0; uint64_t hash = 0; bool flipH = false, flipV = false; };
+        struct Tile { int dx = 0, dy = 0; uint64_t hash = 0; bool flipH = false, flipV = false; int palette = -1; };
         std::string name;
         bool sprite = true;
         int width = 0, height = 0, margin = 0;

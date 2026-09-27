@@ -308,6 +308,39 @@ with tempfile.TemporaryDirectory() as d:
     out2 = e.compose(cap, {"aa": tile_skin}, 2, objs)
     check(out2.getpixel((20 * 2, 30 * 2)) == (255, 0, 0) and out2.getpixel((150 * 2, 150 * 2)) == (0, 0, 255), "compose: object wins over tile skins, lone tile uses its tile skin")
 
+    # real bug found live: two differently-coloured enemies that happen to reuse the exact same tile
+    # shapes (Galaga's entrance animation draws its green and its blue version of one enemy from the very
+    # same background tiles, only the palette differs) must NOT be treated as one group - a skin made for
+    # the palette-2 (green) one must not also repaint the palette-0 (blue) one.
+    pal_cell_a = make_cell(180, 60, "shape9", pal=2)  # "green"
+    pal_cell_b = make_cell(200, 60, "shape9", pal=0)  # "blue" - same shape, different palette
+    for c in (pal_cell_a, pal_cell_b):
+        for y in range(8):
+            for x in range(8):
+                if e.pixel_index(data, x, y):
+                    frame.putpixel((c["x"] + x, c["y"] + y), tuple(rgb[e.pixel_index(data, x, y)]))
+    ia, ib = len(cap.cells), len(cap.cells) + 1
+    cap.cells = cap.cells + [pal_cell_a, pal_cell_b]
+    cap.image = frame.convert("RGB")
+    cap._visible = {}  # the image changed underneath the already-cached Capture; drop the stale cache
+    pal_obj = e.object_from_cells(cap, [ia], 2, "green9")
+    check(pal_obj.tiles[0]["pal"] == 2, "object_from_cells: records the tile's own palette")
+    pal_matches = e.match_objects(cap, {"green9": pal_obj})
+    check(len(pal_matches) == 1 and pal_matches[0].members == [ia],
+          "match_objects: a palette-specific group does not also match the same shape in a different palette (got %d matches)" % len(pal_matches))
+    # an old-format object (no recorded palette, as saved before this existed) keeps matching every palette
+    wildcard_obj = e.object_from_cells(cap, [ia], 2, "any9")
+    wildcard_obj.tiles[0].pop("pal")
+    wildcard_matches = e.match_objects(cap, {"any9": wildcard_obj})
+    check(len(wildcard_matches) == 2, "match_objects: a tile with no recorded palette (old .obj files) still matches any palette (got %d)" % len(wildcard_matches))
+    # the .obj text format round-trips the palette
+    text = pal_obj.to_text()
+    check("tile 0 0 shape9 0 0 2" in text, "Obj.to_text: palette is written as the 6th field (got %r)" % text)
+    reparsed = e.parse_object("green9", text, pal_obj.picture)
+    check(reparsed.tiles[0]["pal"] == 2, "parse_object: palette round-trips")
+    old_text = text.rsplit(" 2\n", 1)[0] + "\n"  # simulate a file saved before palette existed (no 6th field)
+    check(e.parse_object("green9", old_text, pal_obj.picture).tiles[0]["pal"] is None, "parse_object: a missing 6th field means 'any palette', not an error")
+
     # overflow with margin paints beyond the tiles
     big = e.object_from_cells(cap, [0, 1], 2, "big", margin=2, overflow=True)
     big.picture.paste((0, 0, 255, 255), (0, 0, big.picture.width, big.picture.height))

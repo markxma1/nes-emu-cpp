@@ -296,6 +296,8 @@ namespace NES
                 try { t.hash = std::stoull(hash, nullptr, 16); } catch (...) { return false; }
                 t.flipH = fh != 0;
                 t.flipV = fv != 0;
+                int pal = -1;
+                t.palette = (ls >> pal) ? pal : -1; // the 6th field is optional: -1 = matches any palette
                 out.tiles.push_back(t);
             }
         }
@@ -320,7 +322,8 @@ namespace NES
             for (size_t first = 0; first < cells.size(); first++)
             {
                 const HdCell& a = cells[first];
-                if (consumed[first] || a.sprite != object.sprite || a.hash != anchor.hash)
+                if (consumed[first] || a.sprite != object.sprite || a.hash != anchor.hash ||
+                    (anchor.palette >= 0 && anchor.palette != a.palette))
                     continue;
                 for (int variant = 0; variant < 4; variant++)
                 {
@@ -341,7 +344,8 @@ namespace NES
                         for (auto it = range.first; it != range.second && !found; ++it)
                         {
                             const size_t i = it->second;
-                            if (!consumed[i] && cells[i].hash == t.hash && cells[i].flipH == (t.flipH != fh) && cells[i].flipV == (t.flipV != fv))
+                            if (!consumed[i] && cells[i].hash == t.hash && cells[i].flipH == (t.flipH != fh) && cells[i].flipV == (t.flipV != fv) &&
+                                (t.palette < 0 || t.palette == cells[i].palette))
                             {
                                 members.push_back(i);
                                 found = true;

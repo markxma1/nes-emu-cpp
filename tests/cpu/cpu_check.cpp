@@ -1981,6 +1981,62 @@ namespace
         Check(hd4.at<cv::Vec3b>((30 - 2) * scale, (20 - 2) * scale) == cv::Vec3b(255, 0, 0), "HD object: overflow paints the margin around the tiles");
     }
 
+    // Real bug found live: Galaga's entrance animation draws the green and the blue version of one enemy
+    // from the exact same background tiles, only the palette differs - a group made for one colour used to
+    // also match (and repaint) the other. See HdLayer.h's own comment on the optional 6th .obj field.
+    void TestHdLayerObjectPaletteMatching()
+    {
+        HdObject object;
+        Check(HdLayer::ParseObject("layer b\nsize 8 8\ntile 0 0 00000000000000aa 0 0 2\n", object) && object.tiles[0].palette == 2,
+              "HD object: an optional 6th field records the tile's palette");
+        HdObject wildcard;
+        Check(HdLayer::ParseObject("layer b\nsize 8 8\ntile 0 0 00000000000000aa 0 0\n", wildcard) && wildcard.tiles[0].palette == -1,
+              "HD object: a missing palette field means 'matches any palette' (older .obj files)");
+
+        const int scale = 2;
+        object.margin = 0;
+        object.overflow = true;
+        object.picture = cv::Mat(8 * scale, 8 * scale, CV_8UC4, cv::Scalar(0, 0, 255, 255)); // opaque red (BGRA)
+        auto cellPal = [](uint64_t hash, int x, int y, uint8_t pal) {
+            HdCell c; c.sprite = false; c.hash = hash; c.x = x; c.y = y; c.palette = pal; c.visibleMask = ~0ULL; c.visible = 64; return c;
+        };
+        // same tile hash at two positions, one with the recorded palette (2), one with a different one (0)
+        std::vector<HdCell> cells = { cellPal(0xaa, 20, 30, 2), cellPal(0xaa, 40, 30, 0) };
+        std::vector<HdObject> objects = { object };
+        std::vector<char> consumed(cells.size(), 0);
+        cv::Mat hd(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        int n = HdLayer::PaintObjects(hd, scale, cells, objects, consumed);
+        Check(n == 1 && consumed[0] && !consumed[1], "HD object: a palette-specific tile only matches its own palette (matched " + std::to_string(n) + ")");
+        Check(hd.at<cv::Vec3b>(30 * scale, 20 * scale) == cv::Vec3b(0, 0, 255), "HD object: the matching-palette cell is painted");
+        Check(hd.at<cv::Vec3b>(30 * scale, 40 * scale) == cv::Vec3b(0, 0, 0), "HD object: the different-palette cell is left untouched");
+
+        // the wildcard (no recorded palette) version matches every palette, unchanged old behaviour
+        wildcard.margin = 0;
+        wildcard.overflow = true;
+        wildcard.picture = object.picture;
+        std::vector<HdObject> wildcardObjects = { wildcard };
+        std::vector<char> consumed2(cells.size(), 0);
+        cv::Mat hd2(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        int n2 = HdLayer::PaintObjects(hd2, scale, cells, wildcardObjects, consumed2);
+        Check(n2 == 2, "HD object: a tile with no recorded palette matches any palette (matched " + std::to_string(n2) + ")");
+
+        // a 2-tile group whose ANCHOR palette matches but a later MEMBER's does not - isolates the per-
+        // member palette check (the check above always ran on the same tile that also served as anchor)
+        HdObject two;
+        Check(HdLayer::ParseObject("layer b\nsize 16 8\ntile 0 0 00000000000000aa 0 0 2\ntile 8 0 00000000000000bb 0 0 2\n", two),
+              "HD object (2-tile): parses");
+        two.margin = 0;
+        two.overflow = true;
+        two.picture = cv::Mat(8 * scale, 16 * scale, CV_8UC4, cv::Scalar(0, 0, 255, 255));
+        std::vector<HdCell> twoCells = { cellPal(0xaa, 20, 30, 2), cellPal(0xbb, 28, 30, 0) }; // 2nd tile's palette does not match
+        std::vector<HdObject> twoObjects = { two };
+        std::vector<char> consumed3(twoCells.size(), 0);
+        cv::Mat hd5(240 * scale, 256 * scale, CV_8UC3, cv::Scalar(0, 0, 0));
+        int n3 = HdLayer::PaintObjects(hd5, scale, twoCells, twoObjects, consumed3);
+        Check(n3 == 0 && !consumed3[0] && !consumed3[1],
+              "HD object: a group needs EVERY member's palette to match, not just the anchor's (matched " + std::to_string(n3) + ")");
+    }
+
 int main()
 {
     NES_Console::INIT();
@@ -2029,6 +2085,7 @@ int main()
     TestSettingsFile();
     TestHdLayerCellHelpers();
     TestHdLayerObjects();
+    TestHdLayerObjectPaletteMatching();
     TestApuMixerIsNonLinear();
     TestApuPulseFrequency();
     TestApuTriangleFrequency();
