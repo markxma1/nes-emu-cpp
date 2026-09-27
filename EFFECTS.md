@@ -108,6 +108,16 @@ lets you drag a rectangle around the tiles of one object (sprites or background)
 the group (you choose the name, overflow and margin). Groups appear in the tile list at the top and can be
 painted like tiles, also directly on the captured picture.
 
+**A full redesign needs overflow, with a margin big enough for the new artwork - not just "on".** Without
+overflow (or with `margin 0`), the picture can never show more than the original tiles' own tiny shape,
+however big or detailed the imported artwork is; the original keeps showing through everywhere the new
+picture couldn't reach, which looks like "the skin isn't replacing anything". In the Tile tab (select the
+group first): tick **overflow**, then set **margin** to something large enough for the new artwork's real
+size and click **Apply** - this resizes the group's picture (existing artwork keeps its position; growing
+adds transparent space around it, shrinking crops it) *before* you **Import PNG** or paint, since Import PNG
+always resizes to the group's *current* margin. There's no single right margin - pick whatever comfortably
+fits the new art relative to the original tiles' size (`obj.width`/`obj.height` in the `.obj` file).
+
 The **Show: Sprites / Background** checkboxes hide one layer in the Frame picture (painted over with a
 checkerboard) and, more importantly, make it impossible to click - so a click or drag can never land on
 the hidden layer by accident, which used to make it easy to grab a background tile while meaning to

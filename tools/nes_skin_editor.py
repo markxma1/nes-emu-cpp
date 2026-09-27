@@ -375,6 +375,20 @@ def paint_object_match(out, capture, match, scale):
     out.paste(pic, ((match.ox - obj.margin) * scale, (match.oy - obj.margin) * scale), alpha)
 
 
+def resized_for_margin(obj, old_margin, new_margin, picture=None):
+    """A new picture (RGBA) sized for `obj` at `new_margin` instead of `old_margin`, at the same per-NES-
+    pixel resolution `picture` (default obj.picture) already has - existing artwork keeps its position
+    (the margin grows/shrinks by the same amount on every side), never stretched. A bigger margin adds
+    transparent space around the old content; a smaller one crops whatever no longer fits. Does not
+    mutate `obj` - the caller applies obj.margin/obj.picture afterwards."""
+    picture = obj.picture if picture is None else picture
+    k = picture.width // (obj.width + 2 * old_margin)
+    offset = (new_margin - old_margin) * k
+    out = Image.new("RGBA", ((obj.width + 2 * new_margin) * k, (obj.height + 2 * new_margin) * k), (0, 0, 0, 0))
+    out.paste(picture, (offset, offset))
+    return out
+
+
 def object_from_cells(capture, indices, scale, name, margin=0, overflow=False):
     """Makes an object out of the chosen captured cells (all of one layer). Its picture starts as the original
     pixels enlarged, so nothing changes until it is painted."""
@@ -620,6 +634,7 @@ def run_ui(pack_dir):
     only_var = tk.StringVar(value="all")
     variant_var = tk.IntVar(value=0)
     overflow_var = tk.IntVar(value=0)
+    margin_var = tk.IntVar(value=0)
     status = tk.StringVar(value="Pick a tile on the left, or click the picture in the Frame tab.")
 
     # ---------- helpers ----------
@@ -813,6 +828,10 @@ def run_ui(pack_dir):
             o = objects[h[4:]]
             ttk.Label(swatches, text="group of %d tiles, %dx%d pixels, picture %dx%d" % (len(o.tiles), o.width, o.height, o.picture.width, o.picture.height)).pack(side="left")
             ttk.Checkbutton(swatches, text="overflow (paint beyond the tiles)", variable=overflow_var, command=toggle_overflow).pack(side="left", padx=8)
+            ttk.Label(swatches, text="margin").pack(side="left")
+            margin_var.set(o.margin)
+            ttk.Spinbox(swatches, from_=0, to=200, width=4, textvariable=margin_var, command=set_margin).pack(side="left")
+            ttk.Button(swatches, text="Apply", command=set_margin).pack(side="left", padx=(2, 8))
         if t:
             ttk.Label(swatches, text="colours of the game:").pack(side="left")
             key = state["pal_key"] or default_colours(t)[0]
@@ -851,7 +870,33 @@ def run_ui(pack_dir):
         if is_object(h) and h[4:] in objects:
             objects[h[4:]].overflow = bool(overflow_var.get())
             save_object(pack_dir, objects[h[4:]])
+            redraw_tile()
             redraw_frame()
+
+    def set_margin():
+        """Changes an existing group's margin (room its picture reserves beyond the tiles, used with
+        overflow) and resizes its picture to match - existing artwork is kept at the same position
+        (margin growing/shrinking symmetrically on every side), never stretched. Needed before importing
+        artwork that is a very different size than the original tiles - e.g. a full redesign - since
+        Import PNG resizes to the group's CURRENT margin; too little margin is exactly why a much bigger
+        picture can still look like 'nothing changed' (overflow=off, or a margin too small to hold it,
+        both mean the original still shows through everywhere the new picture couldn't reach)."""
+        h = state["hash"]
+        if not (is_object(h) and h[4:] in objects):
+            return
+        obj = objects[h[4:]]
+        new_margin = margin_var.get()
+        if new_margin == obj.margin:
+            return
+        old_picture = current_image(h)  # the in-progress edit if any, else the saved picture
+        new_picture = resized_for_margin(obj, obj.margin, new_margin, old_picture)
+        obj.margin = new_margin
+        obj.picture = new_picture
+        work.pop(stem_for(h), None)  # the resized picture is now the object's own, not a pending edit
+        save_object(pack_dir, obj)
+        redraw_tile()
+        redraw_frame()
+        status.set("Margin set to %d (picture now %dx%d). Import PNG / paint now uses this size." % (new_margin, new_picture.width, new_picture.height))
 
     def apply_tool(img, stem, x, y, first):
         t = tool.get()

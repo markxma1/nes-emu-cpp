@@ -265,6 +265,22 @@ with tempfile.TemporaryDirectory() as d:
     check(non_square.native_size(2) == ((16 + 6) * 2, (8 + 6) * 2), "Obj.native_size: overflow adds the margin on every side")
     non_square.overflow = False
     check(non_square.native_size(2) == (16 * 2, 8 * 2), "Obj.native_size: without overflow the margin is not reserved in the picture")
+
+    # resized_for_margin: lets an EXISTING group's margin be changed without losing its artwork - needed
+    # before importing/painting something much bigger than the original tiles (found live: a group stuck
+    # at margin 0 can never show more than the tiny original tiles' own area, however detailed the
+    # imported picture is - there was no way to grow it after creation except deleting and re-grouping).
+    margin_obj = e.object_from_cells(cap, [0, 1], 2, "marg")  # 16x8 NES pixels, scale 2 -> 32x16 picture
+    pic = margin_obj.picture
+    pic.paste((10, 20, 30, 255), (0, 0, 4, 4))  # a known marker in the corner
+    grown = e.resized_for_margin(margin_obj, 0, 3, pic)  # margin 0 -> 3, at scale 2: shifts by 3*2=6
+    check(grown.size == (32 + 12, 16 + 12), "resized_for_margin: grows by 2*margin*k on each axis (got %r)" % (grown.size,))
+    check(grown.getpixel((6, 6)) == (10, 20, 30, 255), "resized_for_margin: old content moves by margin*k, not stretched")
+    check(grown.getpixel((0, 0))[3] == 0, "resized_for_margin: the new space is transparent")
+    shrunk = e.resized_for_margin(margin_obj, 3, 0, grown)  # shrink back to margin 0
+    check(shrunk.size == pic.size, "resized_for_margin: shrinking returns to the original size")
+    check(shrunk.getpixel((0, 0)) == (10, 20, 30, 255), "resized_for_margin: shrinking realigns the content back correctly")
+    check(e.resized_for_margin(margin_obj, 0, 0, pic).getpixel((0, 0)) == (10, 20, 30, 255), "resized_for_margin: margin unchanged still copies the picture correctly")
     try:
         e.object_from_cells(cap, [0, 1], 2, "x")
         e.object_from_cells(cap, [], 2, "x")
