@@ -15,6 +15,10 @@ How it fits together:
 Tiles that belong together (a 2x2 ship, a big enemy) can be made into a group with ONE picture (Frame tab:
 'Auto-group sprites' or 'Select tiles' + 'Group selected'); see EFFECTS.md.
 
+Want every individual tile the ROM contains, without playing the game at all? Run
+`python3 tools/nes_extract_chr.py game.nes build/skins/game` first - it reads the ROM file directly and
+writes synthetic captures this editor opens exactly like a real one. Groups still need one real capture.
+
 The tile picture is the tile in its original (unflipped) orientation, any size that is a multiple of 8
 (default 32x32 = 4 times the NES resolution), with transparency. Transparent pixels keep the original.
 Needs Python 3 + tkinter + Pillow (sudo pacman -S tk python-pillow).

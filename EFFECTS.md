@@ -47,6 +47,34 @@ paint garbage - the worst case is "this tile keeps its original look in this fra
 - Sprites (8x8 and 8x16) and background tiles are replaced by tile; transparency (alpha) is respected.
 - `tools/nes_skin_editor.py`: list of all tiles seen in the captures, pixel editor (pencil, eraser, fill, picker, undo), painting directly on the captured picture (**Frame** tab, flips and shared tiles handled), "start from original", import/export PNG, and **sheet export/import** to send all tiles through any external AI upscaler / image editor and get them back.
 
+## Getting every tile without playing the game
+
+`tools/nes_extract_chr.py` reads a ROM's CHR-ROM directly out of the `.nes` file - no emulator, no
+running frame - and writes it as a synthetic capture the skin editor already understands:
+
+```sh
+python3 tools/nes_extract_chr.py game.nes build/skins/game
+python3 tools/nes_skin_editor.py build/skins/game
+```
+
+This works because a tile's identity (its hash) depends only on its own 16 pattern bytes, and on real
+NES hardware those are always addressed in fixed 16-byte-aligned units - a mapper can change *which*
+slice of CHR-ROM is currently banked into the PPU, but never re-slice a tile at a finer granularity.
+Scanning every 16-byte-aligned position in the whole file therefore lists every tile the game could ever
+show, across every bank, in one pass - checked directly: on Galaga, every one of the distinct tiles seen
+in a real captured gameplay frame (60 of them) was already present among the 502 tiles the static
+extraction found, without running a single frame. The offset math (header, optional 512-byte trainer,
+PRG-ROM skip, CHR-ROM slice) and the hash itself were cross-checked against the real emulator too: a
+throwaway harness dumped `NES_PPU_Memory::PatternTableN` right after `NES_Console::LoadRom()` (zero CPU
+execution) and matched byte for byte, including with a trainer present.
+
+What this does *not* give you: **groups** (which tiles combine into one on-screen character) are not
+stored anywhere in the ROM - that composition only exists as a pattern of OAM writes the game's code
+makes while it runs, so grouping still needs at least one real, live capture (`'` in the emulator).
+CHR-RAM games (the game uploads its own graphics into video memory at runtime, common on some
+MMC1/UNROM boards) have nothing to extract statically at all; the tool detects this (CHR-ROM size 0 in
+the header) and says so.
+
 ## Limits of this first version (and what would lift them)
 
 1. **Tiles vs. groups.** A single tile's skin is limited to that tile's own pixels. For anything bigger use a **group** (below): one picture for a whole character, optionally larger than the tiles' silhouette (`overflow` + margin) for outlines, glow or a smoother shape.

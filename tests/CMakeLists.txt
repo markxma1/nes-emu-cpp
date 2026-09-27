@@ -90,6 +90,7 @@ find_program(PYTHON3 python3)
 if(PYTHON3)
     add_test(NAME settings_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/settings_check.py)
     add_test(NAME skin_editor_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/skin_editor_check.py)
+    add_test(NAME extract_chr_check COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tests/extract_chr_check.py)
 endif()
 
 # This whole codebase leans on permanent static/global singletons

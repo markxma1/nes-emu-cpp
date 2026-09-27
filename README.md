@@ -217,7 +217,10 @@ screen; the game window can also be resized by dragging its corner. The old in-e
 Replaces sprites and background tiles by higher-resolution pictures at display time, without
 touching the emulated NES. Press `/` in the emulator (off / 2x / 3x / 4x), press `'` to capture the
 current picture, then edit the tiles in `python3 tools/nes_skin_editor.py build/skins/<game>`; saved
-pictures appear in the running game within half a second. How it works, its limits, the file
+pictures appear in the running game within half a second. To get every individual tile the ROM contains
+without playing at all, run `python3 tools/nes_extract_chr.py game.nes build/skins/<game>` first (reads
+the ROM file directly; groups - which tiles combine into one character - still need one real capture).
+How it works, its limits, the file
 format and speed measurements (the layer runs on its own thread with its own copy of the state, about +0.4 ms
 per frame): [EFFECTS.md](EFFECTS.md). `NES_BENCH_HD=3 NES_BENCH_SKINS=<folder> ./build/nes-bench game.nes 1500`
 measures it (`NES_BENCH_HD=3:sync` = everything on the emulation thread, for comparison).
